@@ -1,4 +1,5 @@
 mod error;
+mod pdf_parser;
 
 pub fn run() {
     tauri::Builder::default()
