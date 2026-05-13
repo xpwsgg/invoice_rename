@@ -2,9 +2,45 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
     <title>PDF 发票批量重命名</title>
+    <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <h1>启动中…</h1>
+    <main class="app">
+      <h1>PDF 发票批量重命名</h1>
+
+      <section class="form">
+        <label class="field">
+          <span>源文件夹</span>
+          <div class="row">
+            <input id="sourceDir" type="text" readonly placeholder="点击右侧选择文件夹" />
+            <button id="pickDirBtn" type="button">选择</button>
+          </div>
+        </label>
+
+        <label class="field">
+          <span>用户名</span>
+          <input id="userName" type="text" placeholder="如：Felix" autocomplete="off" />
+        </label>
+
+        <label class="field">
+          <span>Tracking Number</span>
+          <input id="trackingNumber" type="text" placeholder="如：000-115-216" autocomplete="off" />
+        </label>
+
+        <div class="actions">
+          <span id="formError" class="error-text" aria-live="polite"></span>
+          <button id="runBtn" type="button" class="primary">开始重命名</button>
+        </div>
+      </section>
+
+      <section class="log">
+        <h2>执行日志</h2>
+        <div id="logBox" class="log-box" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <script type="module" src="main.js"></script>
   </body>
 </html>
