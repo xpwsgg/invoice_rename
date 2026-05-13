@@ -98,6 +98,142 @@ fn is_pdf(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+const MAX_DEDUPE: u32 = 999;
+
+fn timestamp() -> String {
+    chrono::Local::now().format("%H:%M:%S").to_string()
+}
+
+fn make_log(level: &str, message: impl Into<String>) -> LogEntry {
+    LogEntry {
+        ts: timestamp(),
+        level: level.to_string(),
+        message: message.into(),
+    }
+}
+
+/// 在 `target` 已存在时尝试 `name-1.pdf`、`name-2.pdf`… 直到上限 999。
+/// 返回最终使用的路径以及"是否加了序号"，找不到空位时返回 None。
+fn resolve_target(target: &Path) -> Option<(PathBuf, u32)> {
+    if !target.exists() {
+        return Some((target.to_path_buf(), 0));
+    }
+    let parent = target.parent()?;
+    let stem = target.file_stem()?.to_str()?;
+    let ext = target.extension().and_then(|e| e.to_str()).unwrap_or("");
+    for n in 1..=MAX_DEDUPE {
+        let candidate_name = if ext.is_empty() {
+            format!("{stem}-{n}")
+        } else {
+            format!("{stem}-{n}.{ext}")
+        };
+        let candidate = parent.join(candidate_name);
+        if !candidate.exists() {
+            return Some((candidate, n));
+        }
+    }
+    None
+}
+
+pub fn execute_plan<L: Logger>(plans: &[RenamePlan], logger: &mut L) -> RenameSummary {
+    let total = plans.len();
+    let mut success = 0usize;
+    let mut failed = 0usize;
+
+    if total == 0 {
+        logger.log(make_log("warn", "未找到 PDF 文件"));
+        return RenameSummary {
+            total,
+            success,
+            failed,
+        };
+    }
+
+    logger.log(make_log("info", format!("扫描到 {total} 个 PDF 文件")));
+
+    // 输出目录由第一个 plan 的 target.parent 决定
+    if let Some(first) = plans.first() {
+        if let Some(out_dir) = first.target.parent() {
+            if let Err(e) = std::fs::create_dir_all(out_dir) {
+                logger.log(make_log(
+                    "error",
+                    format!("创建输出目录失败：{} ({e})", out_dir.display()),
+                ));
+                return RenameSummary {
+                    total,
+                    success,
+                    failed: total,
+                };
+            }
+        }
+    }
+
+    let started = std::time::Instant::now();
+
+    for (idx, plan) in plans.iter().enumerate() {
+        let i = idx + 1;
+        let src_name = plan
+            .source
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        if plan.invoice_number.is_none() {
+            logger.log(make_log(
+                "warn",
+                format!("[{i}/{total}] {src_name} 未匹配到发票号码，使用 UNKNOWN 占位"),
+            ));
+        }
+
+        match resolve_target(&plan.target) {
+            None => {
+                logger.log(make_log(
+                    "error",
+                    format!("[{i}/{total}] {src_name} 跳过：同名文件序号已耗尽（>{MAX_DEDUPE}）"),
+                ));
+                failed += 1;
+            }
+            Some((final_target, dedupe_n)) => match std::fs::copy(&plan.source, &final_target) {
+                Ok(_) => {
+                    let target_name = final_target
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    let suffix_note = if dedupe_n > 0 {
+                        "（同名已存在，加序号）"
+                    } else {
+                        ""
+                    };
+                    logger.log(make_log(
+                        "info",
+                        format!("[{i}/{total}] {src_name} → {target_name}{suffix_note}"),
+                    ));
+                    success += 1;
+                }
+                Err(e) => {
+                    logger.log(make_log(
+                        "error",
+                        format!("[{i}/{total}] {src_name} 复制失败：{e}"),
+                    ));
+                    failed += 1;
+                }
+            },
+        }
+    }
+
+    let secs = started.elapsed().as_secs_f32();
+    logger.log(make_log(
+        "info",
+        format!("完成：成功 {success}，失败 {failed}，耗时 {secs:.1}s"),
+    ));
+
+    RenameSummary {
+        total,
+        success,
+        failed,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,5 +324,90 @@ mod tests {
                 .to_string_lossy(),
             "UNKNOWN-Felix-TN.pdf"
         );
+    }
+
+    #[derive(Default)]
+    struct VecLogger {
+        entries: Vec<LogEntry>,
+    }
+    impl Logger for VecLogger {
+        fn log(&mut self, entry: LogEntry) {
+            self.entries.push(entry);
+        }
+    }
+
+    fn make_pdf(dir: &Path, name: &str, payload: &str) -> PathBuf {
+        let p = dir.join(name);
+        std::fs::write(&p, payload).unwrap();
+        p
+    }
+
+    #[test]
+    fn execute_copies_files_to_output_subdir() {
+        let dir = TempDir::new().unwrap();
+        make_pdf(dir.path(), "a.pdf", "AAA");
+        make_pdf(dir.path(), "b.pdf", "BBB");
+
+        let plans = build_plan(dir.path(), "Felix", "TN", ok_extract).unwrap();
+        let mut logger = VecLogger::default();
+        let summary = execute_plan(&plans, &mut logger);
+
+        assert_eq!(summary.total, 2);
+        assert_eq!(summary.success, 2);
+        assert_eq!(summary.failed, 0);
+
+        let out = dir.path().join("TN");
+        assert!(out.is_dir());
+        let count = std::fs::read_dir(&out).unwrap().count();
+        assert_eq!(count, 2);
+        assert!(dir.path().join("a.pdf").exists());
+        assert!(dir.path().join("b.pdf").exists());
+    }
+
+    #[test]
+    fn execute_adds_sequence_suffix_on_conflict() {
+        let dir = TempDir::new().unwrap();
+        make_pdf(dir.path(), "a.pdf", "first");
+        make_pdf(dir.path(), "b.pdf", "second");
+
+        let plans = build_plan(dir.path(), "Felix", "TN", ok_extract).unwrap();
+        let mut logger = VecLogger::default();
+        let summary = execute_plan(&plans, &mut logger);
+
+        assert_eq!(summary.success, 2);
+        let out = dir.path().join("TN");
+        let base = out.join("26322000000893295511-Felix-TN.pdf");
+        let seq = out.join("26322000000893295511-Felix-TN-1.pdf");
+        assert!(base.exists());
+        assert!(seq.exists());
+    }
+
+    #[test]
+    fn execute_empty_plan_logs_warn() {
+        let plans: Vec<RenamePlan> = Vec::new();
+        let mut logger = VecLogger::default();
+        let s = execute_plan(&plans, &mut logger);
+        assert_eq!(s.total, 0);
+        assert_eq!(s.success, 0);
+        assert_eq!(s.failed, 0);
+        assert!(logger
+            .entries
+            .iter()
+            .any(|e| e.message.contains("未找到 PDF")));
+    }
+
+    #[test]
+    fn execute_unknown_logs_warn_but_still_copies() {
+        let dir = TempDir::new().unwrap();
+        make_pdf(dir.path(), "a.pdf", "AAA");
+        let plans = build_plan(dir.path(), "Felix", "TN", none_extract).unwrap();
+        let mut logger = VecLogger::default();
+        let s = execute_plan(&plans, &mut logger);
+        assert_eq!(s.success, 1);
+        assert!(logger
+            .entries
+            .iter()
+            .any(|e| e.level == "warn" && e.message.contains("UNKNOWN")));
+        assert!(dir.path().join("TN").join("UNKNOWN-Felix-TN.pdf").exists());
     }
 }
