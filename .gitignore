@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# Node
+node_modules/
+dist/
+*.log
+
+# Tauri / Rust
+/src-tauri/target/
+/src-tauri/gen/
+/src-tauri/lib/libpdfium.*
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Env
+.env
+.env.local
+
+# OMC working directory
+.omc/
