@@ -1,0 +1,34 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "PDF Rename",
+  "version": "0.1.0",
+  "identifier": "com.felix.pdfrename",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "PDF 发票批量重命名",
+        "width": 720,
+        "height": 640,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "app",
+    "icon": [
+      "icons/icon.png"
+    ],
+    "resources": [
+      "lib/libpdfium.dylib"
+    ],
+    "category": "Utility"
+  }
+}
