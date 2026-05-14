@@ -2,6 +2,7 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 
 const FORBIDDEN = /[\/\\:*?"<>|]/;
+const USER_NAME_KEY = "pdfRename.userName";
 
 const $sourceDir = document.getElementById("sourceDir");
 const $userName = document.getElementById("userName");
@@ -10,6 +11,11 @@ const $pickBtn = document.getElementById("pickDirBtn");
 const $runBtn = document.getElementById("runBtn");
 const $err = document.getElementById("formError");
 const $log = document.getElementById("logBox");
+
+const savedUserName = localStorage.getItem(USER_NAME_KEY);
+if (savedUserName) {
+  $userName.value = savedUserName;
+}
 
 let running = false;
 
@@ -75,6 +81,7 @@ async function runRename() {
     return;
   }
   showError("");
+  localStorage.setItem(USER_NAME_KEY, $userName.value.trim());
   clearLog();
   setRunning(true);
 
