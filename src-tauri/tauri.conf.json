@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "PDF Rename",
+  "productName": "ESI Invoice Rename",
   "version": "0.1.0",
   "identifier": "com.felix.pdfrename",
   "build": {
@@ -12,7 +12,8 @@
   "app": {
     "windows": [
       {
-        "title": "PDF 发票批量重命名",
+        "label": "main",
+        "title": "ESI发票重命名工具",
         "width": 720,
         "height": 640,
         "resizable": true,
@@ -27,10 +28,14 @@
     "active": true,
     "targets": "app",
     "icon": [
-      "icons/icon.png"
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
     ],
     "resources": [
-      "lib/libpdfium.dylib"
+      "lib/*"
     ],
     "category": "Utility"
   }
