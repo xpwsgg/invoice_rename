@@ -1,8 +1,19 @@
-# PDF 发票批量重命名
+# ESI 发票重命名工具
 
-一个轻量的 macOS 桌面工具，用于批量整理 PDF 电子发票：自动识别 PDF 中的 20 位发票号码，按 `{发票号}-{用户名}-{Tracking}.pdf` 格式重命名，并复制到以 Tracking Number 命名的子目录中。
+一个 macOS + Windows 桌面工具，用于批量整理 PDF 电子发票：自动识别 PDF 中的 20 位发票号码，按 `{发票号}-{用户名}-{Tracking}.pdf` 格式重命名，并复制到以 Tracking Number 命名的子目录中。
 
 底层用 [Tauri 2](https://tauri.app/) + Rust + [PDFium](https://github.com/bblanchon/pdfium-binaries)，前端是零依赖的原生 JS + Vite。
+
+## 下载安装
+
+直接从 [GitHub Releases](https://github.com/xpwsgg/invoice_rename/releases/latest) 拿对应平台的产物：
+
+| 平台 | 文件 | 用法 |
+|---|---|---|
+| macOS（Intel / Apple Silicon） | `ESI-Invoice-Rename.dmg` | 双击挂载，把 `ESI Invoice Rename.app` 拖到 `Applications` |
+| Windows（x64） | `ESI-Invoice-Rename.exe` | **单文件便携版**，无需安装。`pdfium.dll` 已嵌入 exe，首次启动会自动展开到 `%TEMP%\esi_invoice_rename\` |
+
+打开后一次只允许运行一个实例，重复双击图标会把已有窗口提到前台。
 
 ## 功能
 
@@ -15,6 +26,7 @@
 - 同名文件冲突时自动加序号 `-1`、`-2` … 直到 `-999`
 - 实时日志面板（info / warn / error），含进度计数和耗时
 - 源文件只读取，不移动、不修改、不删除（用 `copy` 而非 `rename`）
+- 用户名自动记忆（点"开始重命名"且校验通过时写入 `localStorage`），下次启动自动回填；源目录和 Tracking Number 不记忆
 
 ## 文件名规则
 
@@ -34,12 +46,12 @@ Tracking：000-115-216
 
 用户名和 Tracking Number 不允许包含 `/ \ : * ? " < > |`。
 
-## 环境要求
+## 环境要求（开发）
 
-- macOS（目前只打包了 `libpdfium.dylib`，Apple Silicon 和 Intel 都支持）
+- macOS 或 Windows
 - [Node.js](https://nodejs.org/) ≥ 18
 - [Rust](https://www.rust-lang.org/) stable toolchain
-- [Tauri 2](https://tauri.app/start/prerequisites/) 系统依赖
+- [Tauri 2 系统依赖](https://tauri.app/start/prerequisites/)
 
 ## 首次准备
 
@@ -48,10 +60,18 @@ Tracking：000-115-216
 npm install
 
 # 2. 下载 PDFium 动态库到 src-tauri/lib/
+#    macOS:
 ./scripts/fetch-pdfium.sh
+#    Windows (PowerShell):
+./scripts/fetch-pdfium.ps1
 ```
 
-`fetch-pdfium.sh` 会根据当前 macOS 架构（arm64 / x86_64）从 [pdfium-binaries](https://github.com/bblanchon/pdfium-binaries) 拉取对应的预编译库。
+两个脚本都从 [pdfium-binaries](https://github.com/bblanchon/pdfium-binaries) 拉取最新预编译库，按当前架构挑对应包：
+
+- macOS：`pdfium-mac-arm64.tgz` 或 `pdfium-mac-x64.tgz` → `src-tauri/lib/libpdfium.dylib`
+- Windows：`pdfium-win-x64.tgz` 或 `pdfium-win-arm64.tgz` → `src-tauri/lib/pdfium.dll`
+
+> Windows 上 `pdfium.dll` 不仅 dev 时需要，**`cargo build` 也会通过 `include_bytes!` 把它嵌入 .exe**，所以编译前必须先跑 fetch 脚本。
 
 ## 启动命令速查
 
@@ -61,8 +81,9 @@ npm install
 | 仅前端 | `npm run dev` | 纯 Vite，无 Tauri IPC，调样式/排版用，`invoke()` 会报错。 |
 | 前端构建 | `npm run build` | 把 `src/` 打成静态资源到 `dist/`（供 Tauri 打包消费）。 |
 | 前端构建产物预览 | `npm run preview` | 用 Vite 起本地 server 浏览 `dist/`。 |
-| 桌面应用打包 | `npm run tauri build` | release 编译 + 打 `.app` Bundle，产物在 `src-tauri/target/release/bundle/macos/`，已包含 `libpdfium.dylib`。 |
-| Rust 单测 | `cd src-tauri && cargo test` | 跑所有 Rust 单元测试（`error` / `pdf_parser` / `renamer`）。 |
+| 桌面应用打包 | `npm run tauri build` | release 编译 + 打包。macOS 产出 `.app` 与 `.dmg`（`src-tauri/target/release/bundle/`）；Windows 产出 `pdf_rename.exe`（`src-tauri/target/release/`，含嵌入的 PDFium）。 |
+| 重新生成图标 | `npm run tauri icon path/to/source.png` | 从 1024×1024 PNG 源图生成全部平台的图标到 `src-tauri/icons/`。 |
+| Rust 单测 | `cd src-tauri && cargo test` | 跑所有 Rust 单元测试（`error` / `pdf_parser` / `renamer`），共 24 条。 |
 | 单模块测试 | `cd src-tauri && cargo test renamer::tests` | 按模块过滤。 |
 | 快速类型检查 | `cd src-tauri && cargo check` | 不产出二进制，验证类型与编译。 |
 | 静态分析 | `cd src-tauri && cargo clippy -- -D warnings` | lint，零告警。 |
@@ -72,39 +93,57 @@ npm install
 
 ## 打包后行为
 
-`tauri.conf.json` 的 `bundle.resources` 已包含 `lib/libpdfium.dylib`，打出的 `.app` 自带 PDFium。运行时 `pdf_parser::locate_lib_dir` 按以下顺序定位库：
+`tauri.conf.json` 的 `bundle.resources` 用 `lib/*` 通配，每个平台都把当前架构的 PDFium 装进 bundle。运行时 `pdf_parser::locate_lib_dir` 按以下顺序定位库：
+
+**Windows（特殊路径）**：
+
+1. 把编译期 `include_bytes!` 嵌入的 `pdfium.dll` 写出到 `%TEMP%\esi_invoice_rename\pdfium.dll`（按文件大小判断是否需要重写，升级 exe 时会自动覆盖）
+2. 加载这个 dll
+
+**macOS / 通用 fallback**：
 
 1. 开发模式：`src-tauri/lib/libpdfium.dylib`
-2. 打包后：`<.app>/Contents/Resources/lib/libpdfium.dylib`（或可执行文件同级 `lib/`）
-3. 都找不到时退回系统 PDFium（一般不会命中）
+2. exe 同级目录（Windows portable 备选路径）
+3. exe 同级 `lib/` 子目录
+4. macOS bundle：`<.app>/Contents/Resources/lib/libpdfium.dylib`
+5. 都找不到时退回系统 PDFium（一般不会命中）
 
 ## 项目结构
 
 ```
 .
-├── src/                   # 前端（vanilla JS + Vite）
-│   ├── index.html
-│   ├── main.js            # 表单校验、IPC 调用、日志渲染
-│   └── style.css          # 跟随系统的浅/深色样式
-├── src-tauri/             # Rust 后端
+├── README.md
+├── .github/
+│   └── workflows/
+│       └── build.yml             # macOS .dmg + Windows .exe 矩阵构建
+├── src/                          # 前端（vanilla JS + Vite）
+│   ├── index.html                # ESI 发票重命名工具 UI
+│   ├── main.js                   # 表单校验、IPC 调用、日志渲染、用户名持久化
+│   └── style.css                 # 跟随系统的浅/深色样式
+├── src-tauri/                    # Rust 后端
 │   ├── src/
-│   │   ├── lib.rs         # Tauri builder & 插件注册
-│   │   ├── commands.rs    # rename_pdfs 命令 + Channel 日志
-│   │   ├── pdf_parser.rs  # PDFium 文本抽取 + 发票号正则
-│   │   ├── renamer.rs     # 计划构建 / 执行 / 冲突处理
-│   │   └── error.rs       # 统一错误类型
-│   ├── lib/               # PDFium 动态库（由脚本下载）
-│   ├── icons/             # 应用图标
-│   └── tauri.conf.json
+│   │   ├── lib.rs                # tauri::Builder，注册 single-instance + dialog 插件
+│   │   ├── commands.rs           # rename_pdfs 命令 + Channel 日志
+│   │   ├── pdf_parser.rs         # PDFium 抽取 + 跨平台 lib 定位 + Windows 嵌入 dll
+│   │   ├── renamer.rs            # 计划构建 / 执行 / 冲突处理
+│   │   └── error.rs              # 统一错误类型
+│   ├── lib/                      # PDFium 动态库（脚本下载，gitignore）
+│   ├── icons/                    # 全平台图标（macOS .icns / Windows .ico / PNG / iOS / Android）
+│   ├── capabilities/
+│   │   └── default.json          # Tauri v2 权限：core:default + dialog:default
+│   ├── tauri.conf.json
+│   └── Cargo.toml
 ├── scripts/
-│   └── fetch-pdfium.sh
+│   ├── fetch-pdfium.sh           # macOS 拉 libpdfium.dylib
+│   └── fetch-pdfium.ps1          # Windows 拉 pdfium.dll
+├── docs/superpowers/             # 原始设计文档与实施计划
 └── vite.config.js
 ```
 
 ## 工作流程概览
 
 ```
- UI 选目录 + 填两个字段
+ UI 选目录 + 填两个字段（用户名从 localStorage 回填）
         │
         ▼
  invoke("rename_pdfs", { sourceDir, userName, trackingNumber, onLog })
@@ -172,14 +211,57 @@ commands.rs      ← 只做参数校验 + 把 Channel 包成 Logger + spawn_bloc
 
 只有"建不出输出目录"这一种顶层失败才会中止整批。
 
-### 显式不做（第一版）
+### 单实例锁
+
+通过 `tauri-plugin-single-instance` 注册回调：第二次启动 .app / .exe 时不会再开新窗口，而是把已有窗口 `show + unminimize + set_focus` 提到前台。回调实现见 `src-tauri/src/lib.rs`。
+
+### Windows 单文件便携版：编译期内嵌 PDFium
+
+Windows 产物是孤零零一个 `.exe`，没有外挂 dll。实现方式：
+
+```rust
+#[cfg(windows)]
+const EMBEDDED_PDFIUM_DLL: &[u8] = include_bytes!("../lib/pdfium.dll");
+```
+
+- 编译时 `include_bytes!` 把 7.2 MB 的 dll 直接编入 exe，最终 exe 约 11 MB
+- 启动时 `ensure_embedded_pdfium()` 把 dll 写到 `%TEMP%\esi_invoice_rename\pdfium.dll`
+- 用文件大小做指纹比较：已存在且大小一致就复用，否则重写——升级 exe 时自动覆盖
+- macOS 通过 `#[cfg(windows)]` 隔离，不会拖累 .app 体积，也不需要 `pdfium.dll` 存在
+
+### 用户名持久化（其它字段刻意不记）
+
+- 用户名用 `localStorage["pdfRename.userName"]` 存，**只在通过校验且真正点击"开始重命名"时写入**——避免试错的临时输入污染记忆
+- 启动时模块加载阶段读出回填到输入框
+- 源目录和 Tracking Number 没记：源目录每次可能不同，Tracking Number 几乎一票一号，记反而碍事
+
+### Tauri v2 capability
+
+`src-tauri/capabilities/default.json` 显式授权 `core:default` 与 `dialog:default`。Tauri 2 是强权限模型——少了这个文件，`@tauri-apps/plugin-dialog` 的 `open()` 会被静默拒绝（按"选择目录"按钮没反应是典型症状），自定义 `#[tauri::command]` 也调不通。
+
+### 显式不做
 
 - 不递归子目录（避免把已有的 `{Tracking}/` 重复处理）
 - 不做"取消"按钮（典型批量秒级完成）
 - 不做 OCR
-- 不持久化日志、不记忆上次输入
+- 不持久化日志
+- 不记忆源目录和 Tracking Number（用户名是例外，见上）
 
 详细的取舍理由见 [设计文档 §9](docs/superpowers/specs/2026-05-13-pdf-rename-design.md)。
+
+## CI / Release 流程
+
+`.github/workflows/build.yml` 的矩阵：
+
+| Runner | PDFium 拉取 | 产出 | Release Asset |
+|---|---|---|---|
+| `macos-latest` | `scripts/fetch-pdfium.sh` | `bundle/dmg/*.dmg` → 重命名为 `ESI-Invoice-Rename.dmg` | `ESI-Invoice-Rename.dmg` |
+| `windows-latest` | `scripts/fetch-pdfium.ps1` | `target/release/pdf_rename.exe` → 重命名为 `ESI-Invoice-Rename.exe` | `ESI-Invoice-Rename.exe` |
+
+触发方式：
+
+- **打 tag**：`git tag v0.1.1 && git push origin v0.1.1` → 矩阵构建 + 自动建 GitHub Release（带 contents:write 权限的 `softprops/action-gh-release`）
+- **手动**：GitHub 仓库 → Actions → build → Run workflow（不会创建 release，只产 artifacts）
 
 ## 设计与实施文档
 
@@ -193,7 +275,8 @@ commands.rs      ← 只做参数校验 + 把 Channel 包成 Logger + spawn_bloc
 - 仅扫描源目录的**顶层** PDF，不递归子目录
 - 加密 / 损坏的 PDF 会作为单文件失败记入日志，不影响其他文件
 - 同一发票号在同一 Tracking 下最多容纳 1000 份副本（基础名 + `-1`…`-999`）
-- 暂未提供 Windows / Linux 构建脚本（PDFium 库需自行准备）
+- 暂不提供 Linux 构建（PDFium Linux 版未集成、`cfg(linux)` 嵌入逻辑未写）
+- macOS .dmg 与 Windows .exe 都未做代码签名 / 公证：macOS 首次打开会弹"无法验证开发者"，需右键 → 打开放行；Windows SmartScreen 也可能拦一次
 
 ## License
 
