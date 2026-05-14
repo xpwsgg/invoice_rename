@@ -29,15 +29,43 @@ fn make_pdfium() -> Result<Pdfium, AppError> {
     Ok(Pdfium::new(bindings))
 }
 
+#[cfg(windows)]
+const EMBEDDED_PDFIUM_DLL: &[u8] = include_bytes!("../lib/pdfium.dll");
+
+#[cfg(windows)]
+fn ensure_embedded_pdfium() -> Option<PathBuf> {
+    let dir = std::env::temp_dir().join("esi_invoice_rename");
+    std::fs::create_dir_all(&dir).ok()?;
+    let dll = dir.join("pdfium.dll");
+    let needs_write = match std::fs::metadata(&dll) {
+        Ok(m) => m.len() as usize != EMBEDDED_PDFIUM_DLL.len(),
+        Err(_) => true,
+    };
+    if needs_write {
+        std::fs::write(&dll, EMBEDDED_PDFIUM_DLL).ok()?;
+    }
+    Some(dir)
+}
+
 fn locate_lib_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    if let Some(dir) = ensure_embedded_pdfium() {
+        return Some(dir);
+    }
+
+    let lib_name = Pdfium::pdfium_platform_library_name();
     let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("lib");
-    if dev.join("libpdfium.dylib").exists() {
+    if dev.join(&lib_name).exists() {
         return Some(dev);
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            for cand in [parent.join("lib"), parent.join("../Resources/lib")] {
-                if cand.join("libpdfium.dylib").exists() {
+            for cand in [
+                parent.to_path_buf(),
+                parent.join("lib"),
+                parent.join("../Resources/lib"),
+            ] {
+                if cand.join(&lib_name).exists() {
                     return Some(cand);
                 }
             }
