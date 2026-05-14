@@ -49,10 +49,9 @@ jobs:
       - name: Build (Tauri)
         run: npm run tauri build
 
-      - name: Pack macOS .app
+      - name: Rename macOS dmg
         if: runner.os == 'macOS'
-        working-directory: src-tauri/target/release/bundle/macos
-        run: zip -ry "ESI-Invoice-Rename-macos.zip" "ESI Invoice Rename.app"
+        run: mv src-tauri/target/release/bundle/dmg/*.dmg ESI-Invoice-Rename.dmg
 
       - name: Rename Windows portable exe
         if: runner.os == 'Windows'
@@ -64,7 +63,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: src-tauri/target/release/bundle/macos/ESI-Invoice-Rename-macos.zip
+          path: ESI-Invoice-Rename.dmg
 
       - name: Upload Windows artifact
         if: runner.os == 'Windows'
@@ -78,6 +77,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            src-tauri/target/release/bundle/macos/ESI-Invoice-Rename-macos.zip
+            ESI-Invoice-Rename.dmg
             ESI-Invoice-Rename.exe
           fail_on_unmatched_files: false
