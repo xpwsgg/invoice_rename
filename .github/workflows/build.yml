@@ -1,0 +1,81 @@
+name: build
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact: macos-app
+          - os: windows-latest
+            artifact: windows-portable
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Fetch PDFium (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          chmod +x scripts/fetch-pdfium.sh
+          ./scripts/fetch-pdfium.sh
+
+      - name: Fetch PDFium (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/fetch-pdfium.ps1
+
+      - name: Build (Tauri)
+        run: npm run tauri build
+
+      - name: Pack macOS .app
+        if: runner.os == 'macOS'
+        working-directory: src-tauri/target/release/bundle/macos
+        run: zip -ry "ESI-Invoice-Rename-macos.zip" "ESI Invoice Rename.app"
+
+      - name: Rename Windows portable exe
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Copy-Item src-tauri/target/release/pdf_rename.exe ESI-Invoice-Rename.exe
+
+      - name: Upload macOS artifact
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: src-tauri/target/release/bundle/macos/ESI-Invoice-Rename-macos.zip
+
+      - name: Upload Windows artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ESI-Invoice-Rename.exe
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            src-tauri/target/release/bundle/macos/ESI-Invoice-Rename-macos.zip
+            ESI-Invoice-Rename.exe
+          fail_on_unmatched_files: false
