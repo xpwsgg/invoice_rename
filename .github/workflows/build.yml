@@ -13,10 +13,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
-            artifact: macos-app
+          - os: macos-14
+            artifact: macos-arm64
+            arch-suffix: arm64
+          - os: macos-13
+            artifact: macos-x86_64
+            arch-suffix: x86_64
           - os: windows-latest
             artifact: windows-portable
+            arch-suffix: ''
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -51,7 +56,7 @@ jobs:
 
       - name: Rename macOS dmg
         if: runner.os == 'macOS'
-        run: mv src-tauri/target/release/bundle/dmg/*.dmg ESI-Invoice-Rename.dmg
+        run: mv src-tauri/target/release/bundle/dmg/*.dmg ESI-Invoice-Rename-${{ matrix.arch-suffix }}.dmg
 
       - name: Rename Windows portable exe
         if: runner.os == 'Windows'
@@ -63,7 +68,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: ESI-Invoice-Rename.dmg
+          path: ESI-Invoice-Rename-${{ matrix.arch-suffix }}.dmg
 
       - name: Upload Windows artifact
         if: runner.os == 'Windows'
@@ -77,6 +82,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ESI-Invoice-Rename.dmg
+            ESI-Invoice-Rename-*.dmg
             ESI-Invoice-Rename.exe
           fail_on_unmatched_files: false
