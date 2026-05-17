@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ARCH=$(uname -m)
+ARCH="${1:-$(uname -m)}"
 case "$ARCH" in
   arm64)   PKG="pdfium-mac-arm64.tgz" ;;
   x86_64)  PKG="pdfium-mac-x64.tgz"   ;;
