@@ -8,11 +8,14 @@
   </head>
   <body>
     <main class="app">
-      <h1>ESI发票重命名工具</h1>
+      <header class="app-header">
+        <h1>ESI 发票重命名工具</h1>
+        <p class="subtitle">按 发票号 · 用户名 · Tracking Number 自动重命名 PDF</p>
+      </header>
 
-      <section class="form">
+      <section class="card form">
         <label class="field">
-          <span>源文件夹</span>
+          <span class="field-label">源文件夹</span>
           <div class="row">
             <input id="sourceDir" type="text" readonly placeholder="点击右侧选择文件夹" />
             <button id="pickDirBtn" type="button">选择</button>
@@ -20,12 +23,12 @@
         </label>
 
         <label class="field">
-          <span>用户名</span>
+          <span class="field-label">用户名</span>
           <input id="userName" type="text" placeholder="如：Felix" autocomplete="off" />
         </label>
 
         <label class="field">
-          <span>Tracking Number</span>
+          <span class="field-label">Tracking Number</span>
           <input id="trackingNumber" type="text" placeholder="如：000-115-216" autocomplete="off" />
         </label>
 
@@ -35,8 +38,39 @@
         </div>
       </section>
 
-      <section class="log">
-        <h2>执行日志</h2>
+      <section class="card panel" data-mode="idle">
+        <header class="panel-header">
+          <h2 class="panel-title panel-title-idle">使用说明</h2>
+          <h2 class="panel-title panel-title-run">执行日志</h2>
+          <button id="clearLogBtn" class="ghost" type="button" title="清空并返回说明">返回说明</button>
+        </header>
+
+        <div id="progressTrack" class="progress" hidden>
+          <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+          <span id="progressText" class="progress-text">0 / 0</span>
+        </div>
+
+        <div id="helpView" class="help">
+          <ol class="help-steps">
+            <li><strong>选择</strong>存放发票 PDF 的源文件夹</li>
+            <li>填写<strong>用户名</strong>与 <strong>Tracking Number</strong></li>
+            <li>点击 <strong>开始重命名</strong>，等待日志结束</li>
+          </ol>
+
+          <div class="help-block">
+            <span class="help-block-label">输出路径</span>
+            <code class="help-example">源文件夹 / &lt;TN&gt; / &lt;发票号&gt;-&lt;用户名&gt;-&lt;TN&gt;.pdf</code>
+          </div>
+
+          <p class="help-note">
+            <span>复制不移动</span>
+            <span>·</span>
+            <span>同名自动加序号</span>
+            <span>·</span>
+            <span>仅扫描顶层 PDF</span>
+          </p>
+        </div>
+
         <div id="logBox" class="log-box" aria-live="polite"></div>
       </section>
     </main>
