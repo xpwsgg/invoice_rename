@@ -5,11 +5,17 @@ use regex::Regex;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
-static RE_LABELED: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?:发票号码|Invoice\s*Number|Invoice\s*No)[：:.\s]*?(\d{20})").unwrap()
+static RE_LABELED_20: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?:发票号码|Invoice\s*Number|Invoice\s*No)[：:.\s]*?(\d{20})(?:[^\d]|$)")
+        .unwrap()
 });
 
-static RE_BARE: Lazy<Regex> = Lazy::new(|| {
+static RE_LABELED_8: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?:发票号码|Invoice\s*Number|Invoice\s*No)[：:.\s]*?(\d{8})(?:[^\d]|$)")
+        .unwrap()
+});
+
+static RE_BARE_20: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?:^|[^\d])(\d{20})(?:[^\d]|$)").unwrap()
 });
 
@@ -74,20 +80,23 @@ fn locate_lib_dir() -> Option<PathBuf> {
     None
 }
 
-/// 在已抽取的 PDF 全文中寻找 20 位发票号码。
-/// 优先匹配带"发票号码"等字段名的，找不到时回退到"独立 20 位数字"。
+/// 在已抽取的 PDF 全文中寻找发票号码。
+/// 匹配优先级：带标签20位 > 带标签8位 > 裸20位。
 pub fn find_invoice_number_in_text(text: &str) -> Option<String> {
-    if let Some(caps) = RE_LABELED.captures(text) {
+    if let Some(caps) = RE_LABELED_20.captures(text) {
         return Some(caps.get(1).unwrap().as_str().to_string());
     }
-    if let Some(caps) = RE_BARE.captures(text) {
+    if let Some(caps) = RE_LABELED_8.captures(text) {
+        return Some(caps.get(1).unwrap().as_str().to_string());
+    }
+    if let Some(caps) = RE_BARE_20.captures(text) {
         return Some(caps.get(1).unwrap().as_str().to_string());
     }
     None
 }
 
 /// 打开 PDF 并尝试提取发票号码。
-/// - Ok(Some) : 成功匹配到 20 位号码
+/// - Ok(Some) : 成功匹配到发票号码（20 位或 8 位）
 /// - Ok(None) : PDF 能打开但无法匹配
 /// - Err     : PDF 打不开 / 加密 / 损坏
 pub fn extract_invoice_number(pdf_path: &Path) -> Result<Option<String>, AppError> {
@@ -185,6 +194,54 @@ mod tests {
     }
 
     #[test]
+    fn labeled_8_digit_chinese() {
+        let text = "发票代码: 012002100311\n发票号码: 07765230\n开票日期";
+        assert_eq!(
+            find_invoice_number_in_text(text),
+            Some("07765230".to_string())
+        );
+    }
+
+    #[test]
+    fn labeled_8_digit_chinese_full_width_colon() {
+        let text = "发票号码：07765230";
+        assert_eq!(
+            find_invoice_number_in_text(text),
+            Some("07765230".to_string())
+        );
+    }
+
+    #[test]
+    fn labeled_8_digit_english() {
+        let text = "Invoice Number: 07765230";
+        assert_eq!(
+            find_invoice_number_in_text(text),
+            Some("07765230".to_string())
+        );
+    }
+
+    #[test]
+    fn prefers_20_digit_over_8_digit() {
+        let text = "发票号码: 07765230\n发票号码: 26322000000893295511";
+        assert_eq!(
+            find_invoice_number_in_text(text),
+            Some("26322000000893295511".to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_bare_8_digit() {
+        let text = "杂项文本 07765230 杂项";
+        assert_eq!(find_invoice_number_in_text(text), None);
+    }
+
+    #[test]
+    fn rejects_9_digit_labeled() {
+        let text = "发票号码: 123456789";
+        assert_eq!(find_invoice_number_in_text(text), None);
+    }
+
+    #[test]
     fn extract_from_sample_pdf_if_present() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/sample.pdf");
@@ -195,7 +252,11 @@ mod tests {
         let result = extract_invoice_number(&path).expect("PDF 解析不应失败");
         assert!(result.is_some(), "应该能从样本 PDF 提取到发票号码");
         let num = result.unwrap();
-        assert_eq!(num.len(), 20);
+        assert!(
+            num.len() == 20 || num.len() == 8,
+            "发票号码应为 20 位或 8 位，实际 {} 位",
+            num.len()
+        );
         assert!(num.chars().all(|c| c.is_ascii_digit()));
     }
 }

@@ -123,9 +123,9 @@ fn resolve_target(target: &Path) -> Option<(PathBuf, u32)> {
     let ext = target.extension().and_then(|e| e.to_str()).unwrap_or("");
     for n in 1..=MAX_DEDUPE {
         let candidate_name = if ext.is_empty() {
-            format!("{stem}-{n}")
+            format!("{stem}_{n}")
         } else {
-            format!("{stem}-{n}.{ext}")
+            format!("{stem}_{n}.{ext}")
         };
         let candidate = parent.join(candidate_name);
         if !candidate.exists() {
@@ -377,7 +377,7 @@ mod tests {
         assert_eq!(summary.success, 2);
         let out = dir.path().join("TN");
         let base = out.join("26322000000893295511-Felix-TN.pdf");
-        let seq = out.join("26322000000893295511-Felix-TN-1.pdf");
+        let seq = out.join("26322000000893295511-Felix-TN_1.pdf");
         assert!(base.exists());
         assert!(seq.exists());
     }
