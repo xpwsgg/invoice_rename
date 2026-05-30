@@ -15,6 +15,7 @@ const $err = document.getElementById("formError");
 const $log = document.getElementById("logBox");
 const $panel = document.querySelector(".panel");
 const $clearBtn = document.getElementById("clearLogBtn");
+const $openFolderBtn = document.getElementById("openFolderBtn");
 const $progressTrack = document.getElementById("progressTrack");
 const $progressFill = document.getElementById("progressFill");
 const $progressText = document.getElementById("progressText");
@@ -25,6 +26,7 @@ if (savedUserName) {
 }
 
 let running = false;
+let lastOutputDir = null;
 
 $pickBtn.addEventListener("click", async () => {
   if (running) return;
@@ -41,6 +43,19 @@ $clearBtn.addEventListener("click", () => {
   if (running) return;
   clearLog();
   setMode("idle");
+});
+
+$openFolderBtn.addEventListener("click", async () => {
+  if (!lastOutputDir) return;
+  try {
+    await invoke("open_folder", { path: lastOutputDir });
+  } catch (e) {
+    appendLog({
+      ts: new Date().toTimeString().slice(0, 8),
+      level: "error",
+      message: typeof e === "string" ? e : JSON.stringify(e),
+    });
+  }
 });
 
 function showError(msg) {
@@ -76,7 +91,18 @@ function setMode(mode) {
     $progressTrack.hidden = true;
     $progressFill.style.width = "0%";
     $progressText.textContent = "0 / 0";
+    hideOpenFolderBtn();
   }
+}
+
+function showOpenFolderBtn(outputDir) {
+  lastOutputDir = outputDir;
+  $openFolderBtn.hidden = false;
+}
+
+function hideOpenFolderBtn() {
+  lastOutputDir = null;
+  $openFolderBtn.hidden = true;
 }
 
 function clearLog() {
@@ -87,7 +113,7 @@ function classifyLevel(entry) {
   const lvl = (entry.level || "info").toLowerCase();
   if (lvl === "info" && SUMMARY_RE.test(entry.message)) {
     const m = entry.message.match(SUMMARY_RE);
-    if (m && +m[2] === 0) return "success";
+    if (m) return +m[2] === 0 ? "success" : "summary-fail";
   }
   return lvl;
 }
@@ -100,7 +126,8 @@ function appendLog(entry) {
 
   const lvlBadge = document.createElement("span");
   lvlBadge.className = "log-level";
-  lvlBadge.textContent = level === "success" ? "DONE" : level.toUpperCase();
+  lvlBadge.textContent =
+    level === "success" ? "DONE" : level === "summary-fail" ? "FAIL" : level.toUpperCase();
 
   const ts = document.createElement("span");
   ts.className = "log-ts";
@@ -141,18 +168,22 @@ async function runRename() {
   $progressTrack.hidden = false;
   $progressFill.style.width = "0%";
   $progressText.textContent = "0 / 0";
+  hideOpenFolderBtn();
   setRunning(true);
 
   const channel = new Channel();
   channel.onmessage = (msg) => appendLog(msg);
 
   try {
-    await invoke("rename_pdfs", {
+    const summary = await invoke("rename_pdfs", {
       sourceDir: $sourceDir.value.trim(),
       userName: $userName.value.trim(),
       trackingNumber: $tracking.value.trim(),
       onLog: channel,
     });
+    if (summary && summary.outputDir) {
+      showOpenFolderBtn(summary.outputDir);
+    }
   } catch (e) {
     appendLog({
       ts: new Date().toTimeString().slice(0, 8),

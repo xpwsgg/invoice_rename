@@ -14,8 +14,10 @@
       {
         "label": "main",
         "title": "ESI发票重命名工具",
-        "width": 720,
-        "height": 640,
+        "width": 760,
+        "height": 800,
+        "minWidth": 640,
+        "minHeight": 640,
         "resizable": true,
         "fullscreen": false
       }

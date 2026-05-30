@@ -15,7 +15,10 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![commands::rename_pdfs])
+        .invoke_handler(tauri::generate_handler![
+            commands::rename_pdfs,
+            commands::open_folder
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

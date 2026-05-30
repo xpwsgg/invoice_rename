@@ -36,3 +36,25 @@ pub async fn rename_pdfs(
 
     Ok(summary)
 }
+
+#[tauri::command]
+pub fn open_folder(path: String) -> Result<(), AppError> {
+    let target = PathBuf::from(&path);
+    if !target.is_dir() {
+        return Err(AppError::Io(format!("路径不存在或不是文件夹：{path}")));
+    }
+
+    #[cfg(target_os = "macos")]
+    let mut cmd = std::process::Command::new("open");
+
+    #[cfg(target_os = "windows")]
+    let mut cmd = std::process::Command::new("explorer");
+
+    #[cfg(target_os = "linux")]
+    let mut cmd = std::process::Command::new("xdg-open");
+
+    cmd.arg(&target)
+        .spawn()
+        .map_err(|e| AppError::Io(format!("打开文件夹失败：{e}")))?;
+    Ok(())
+}

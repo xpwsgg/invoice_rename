@@ -14,6 +14,8 @@ pub struct RenameSummary {
     pub total: usize,
     pub success: usize,
     pub failed: usize,
+    #[serde(rename = "outputDir")]
+    pub output_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -139,6 +141,12 @@ pub fn execute_plan<L: Logger>(plans: &[RenamePlan], logger: &mut L) -> RenameSu
     let total = plans.len();
     let mut success = 0usize;
     let mut failed = 0usize;
+    let mut copied = 0usize;
+
+    let output_dir: Option<String> = plans
+        .first()
+        .and_then(|p| p.target.parent())
+        .map(|p| p.display().to_string());
 
     if total == 0 {
         logger.log(make_log("warn", "未找到 PDF 文件"));
@@ -146,6 +154,7 @@ pub fn execute_plan<L: Logger>(plans: &[RenamePlan], logger: &mut L) -> RenameSu
             total,
             success,
             failed,
+            output_dir: None,
         };
     }
 
@@ -163,6 +172,7 @@ pub fn execute_plan<L: Logger>(plans: &[RenamePlan], logger: &mut L) -> RenameSu
                     total,
                     success,
                     failed: total,
+                    output_dir: None,
                 };
             }
         }
@@ -178,13 +188,6 @@ pub fn execute_plan<L: Logger>(plans: &[RenamePlan], logger: &mut L) -> RenameSu
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
 
-        if plan.invoice_number.is_none() {
-            logger.log(make_log(
-                "warn",
-                format!("[{i}/{total}] {src_name} 未匹配到发票号码，使用 UNKNOWN 占位"),
-            ));
-        }
-
         match resolve_target(&plan.target) {
             None => {
                 logger.log(make_log(
@@ -195,6 +198,7 @@ pub fn execute_plan<L: Logger>(plans: &[RenamePlan], logger: &mut L) -> RenameSu
             }
             Some((final_target, dedupe_n)) => match std::fs::copy(&plan.source, &final_target) {
                 Ok(_) => {
+                    copied += 1;
                     let target_name = final_target
                         .file_name()
                         .map(|n| n.to_string_lossy().to_string())
@@ -204,11 +208,21 @@ pub fn execute_plan<L: Logger>(plans: &[RenamePlan], logger: &mut L) -> RenameSu
                     } else {
                         ""
                     };
-                    logger.log(make_log(
-                        "info",
-                        format!("[{i}/{total}] {src_name} → {target_name}{suffix_note}"),
-                    ));
-                    success += 1;
+                    if plan.invoice_number.is_none() {
+                        logger.log(make_log(
+                            "warn",
+                            format!(
+                                "[{i}/{total}] {src_name} → {target_name}{suffix_note}（未识别发票号，需手工补救）"
+                            ),
+                        ));
+                        failed += 1;
+                    } else {
+                        logger.log(make_log(
+                            "info",
+                            format!("[{i}/{total}] {src_name} → {target_name}{suffix_note}"),
+                        ));
+                        success += 1;
+                    }
                 }
                 Err(e) => {
                     logger.log(make_log(
@@ -231,6 +245,7 @@ pub fn execute_plan<L: Logger>(plans: &[RenamePlan], logger: &mut L) -> RenameSu
         total,
         success,
         failed,
+        output_dir: if copied > 0 { output_dir } else { None },
     }
 }
 
@@ -403,11 +418,14 @@ mod tests {
         let plans = build_plan(dir.path(), "Felix", "TN", none_extract).unwrap();
         let mut logger = VecLogger::default();
         let s = execute_plan(&plans, &mut logger);
-        assert_eq!(s.success, 1);
+        assert_eq!(s.success, 0);
+        assert_eq!(s.failed, 1);
         assert!(logger
             .entries
             .iter()
             .any(|e| e.level == "warn" && e.message.contains("UNKNOWN")));
         assert!(dir.path().join("TN").join("UNKNOWN-Felix-TN.pdf").exists());
+        // UNKNOWN 占位但已落地：仍应返回 output_dir，便于用户手工补救
+        assert!(s.output_dir.is_some());
     }
 }

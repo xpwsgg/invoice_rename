@@ -221,6 +221,16 @@ button.ghost:hover:not(:disabled) {
   color: var(--fg);
 }
 
+button.ghost-accent {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+button.ghost-accent:hover:not(:disabled) {
+  background: var(--accent-ring);
+  color: var(--accent-strong);
+}
+
 button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -258,6 +268,12 @@ button:disabled {
   justify-content: space-between;
   gap: 8px;
   min-height: 22px;
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .panel-title {
@@ -460,6 +476,11 @@ button:disabled {
   color: var(--success);
 }
 
+.log-line.summary-fail .log-level {
+  background: var(--error-soft);
+  color: var(--error);
+}
+
 .log-ts {
   flex: 0 0 auto;
   color: var(--muted);
@@ -483,4 +504,13 @@ button:disabled {
 
 .log-line.success .log-msg {
   color: var(--success);
+}
+
+.log-line.summary-fail .log-msg {
+  color: var(--error);
+}
+
+.log-line.success .log-msg,
+.log-line.summary-fail .log-msg {
+  font-weight: 600;
 }
