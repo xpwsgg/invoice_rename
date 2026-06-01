@@ -41,12 +41,20 @@
       <section class="card panel" data-mode="idle">
         <header class="panel-header">
           <h2 class="panel-title panel-title-idle">使用说明</h2>
-          <h2 class="panel-title panel-title-run">执行日志</h2>
+          <h2 class="panel-title panel-title-run">执行结果</h2>
           <div class="panel-actions">
             <button id="openFolderBtn" class="ghost ghost-accent" type="button" hidden title="在访达中打开输出文件夹">打开文件夹</button>
             <button id="clearLogBtn" class="ghost" type="button" title="清空并返回说明">返回说明</button>
           </div>
         </header>
+
+        <div id="summaryBar" class="summary-bar">
+          <div class="summary-total">
+            <span class="summary-total-label">价税合计总和</span>
+            <span id="summaryAmount" class="summary-total-value">¥0.00</span>
+          </div>
+          <div id="summaryStats" class="summary-stats">共 0 张</div>
+        </div>
 
         <div id="progressTrack" class="progress" hidden>
           <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
@@ -74,7 +82,20 @@
           </p>
         </div>
 
-        <div id="logBox" class="log-box" aria-live="polite"></div>
+        <div id="resultTable" class="result-table">
+          <table>
+            <thead>
+              <tr>
+                <th class="col-idx">#</th>
+                <th class="col-name">源文件名</th>
+                <th class="col-invoice">发票号</th>
+                <th class="col-amount">合计</th>
+                <th class="col-status">结果</th>
+              </tr>
+            </thead>
+            <tbody id="resultBody" aria-live="polite"></tbody>
+          </table>
+        </div>
       </section>
     </main>
 

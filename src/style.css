@@ -289,7 +289,8 @@ button:disabled {
   display: none;
 }
 
-.panel[data-mode="idle"] #logBox,
+.panel[data-mode="idle"] #summaryBar,
+.panel[data-mode="idle"] #resultTable,
 .panel[data-mode="run"] #helpView {
   display: none;
 }
@@ -418,99 +419,175 @@ button:disabled {
   color: var(--muted);
 }
 
-/* ---------- Log box ---------- */
+/* ---------- Summary bar ---------- */
 
-.log-box {
+.summary-bar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+}
+
+.summary-total {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.summary-total-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.summary-total-value {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-stats {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-stats .stat-fail {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.summary-stats .stat-warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+/* ---------- Result table ---------- */
+
+.result-table {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   background: var(--surface-elevated);
   border: 1px solid var(--hairline);
   border-radius: 8px;
-  padding: 6px 4px;
-  font-family: "SF Mono", Menlo, Consolas, monospace;
+}
+
+.result-table table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
   font-size: 12px;
-  line-height: 1.6;
 }
 
-.log-line {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 5px 10px;
+.result-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-align: left;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.result-table tbody td {
+  padding: 6px 10px;
   border-bottom: 1px solid var(--hairline);
-  word-break: break-all;
+  color: var(--fg);
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.log-line:last-child {
+.result-table tbody tr:last-child td {
   border-bottom: none;
 }
 
-.log-level {
-  flex: 0 0 auto;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  padding: 1px 6px;
-  border-radius: 4px;
-  text-transform: uppercase;
-  font-family: inherit;
+/* 列宽与对齐 */
+.col-idx {
+  width: 34px;
+}
+.col-invoice {
+  width: 170px;
+}
+.col-amount {
+  width: 92px;
+  text-align: right;
+}
+.col-status {
+  width: 46px;
+  text-align: center;
 }
 
-.log-line.info .log-level {
-  background: var(--info-soft);
-  color: var(--info);
-}
-
-.log-line.warn .log-level {
-  background: var(--warn-soft);
-  color: var(--warn);
-}
-
-.log-line.error .log-level {
-  background: var(--error-soft);
-  color: var(--error);
-}
-
-.log-line.success .log-level {
-  background: var(--success-soft);
-  color: var(--success);
-}
-
-.log-line.summary-fail .log-level {
-  background: var(--error-soft);
-  color: var(--error);
-}
-
-.log-ts {
-  flex: 0 0 auto;
+.result-table td.cell-idx {
   color: var(--muted);
-  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
-.log-msg {
-  flex: 1;
-  color: var(--fg);
-  white-space: pre-wrap;
+.result-table td.cell-invoice {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--muted);
 }
 
-.log-line.warn .log-msg {
-  color: var(--warn);
+.result-table td.cell-amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
-.log-line.error .log-msg {
-  color: var(--error);
+.result-table td.cell-amount.missing {
+  color: var(--muted);
 }
 
-.log-line.success .log-msg {
+.result-table td.cell-status {
+  text-align: center;
+}
+
+.status-badge {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.status-badge.ok {
   color: var(--success);
 }
 
-.log-line.summary-fail .log-msg {
+.status-badge.fail {
   color: var(--error);
 }
 
-.log-line.success .log-msg,
-.log-line.summary-fail .log-msg {
-  font-weight: 600;
+/* 失败行红色高亮 */
+.result-table tbody tr.row-failed td {
+  background: var(--error-soft);
+}
+
+.result-table tbody tr.row-failed td.cell-name,
+.result-table tbody tr.row-failed td.cell-invoice {
+  color: var(--error);
+}
+
+.result-table td.table-empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 18px 10px;
+  white-space: normal;
 }

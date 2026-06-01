@@ -3,8 +3,6 @@ import { open } from "@tauri-apps/plugin-dialog";
 
 const FORBIDDEN = /[\/\\:*?"<>|]/;
 const USER_NAME_KEY = "pdfRename.userName";
-const PROGRESS_RE = /\[(\d+)\/(\d+)\]/;
-const SUMMARY_RE = /^完成：成功\s+(\d+)，失败\s+(\d+)/;
 
 const $sourceDir = document.getElementById("sourceDir");
 const $userName = document.getElementById("userName");
@@ -12,13 +10,16 @@ const $tracking = document.getElementById("trackingNumber");
 const $pickBtn = document.getElementById("pickDirBtn");
 const $runBtn = document.getElementById("runBtn");
 const $err = document.getElementById("formError");
-const $log = document.getElementById("logBox");
 const $panel = document.querySelector(".panel");
 const $clearBtn = document.getElementById("clearLogBtn");
 const $openFolderBtn = document.getElementById("openFolderBtn");
 const $progressTrack = document.getElementById("progressTrack");
 const $progressFill = document.getElementById("progressFill");
 const $progressText = document.getElementById("progressText");
+const $resultTable = document.getElementById("resultTable");
+const $resultBody = document.getElementById("resultBody");
+const $summaryAmount = document.getElementById("summaryAmount");
+const $summaryStats = document.getElementById("summaryStats");
 
 const savedUserName = localStorage.getItem(USER_NAME_KEY);
 if (savedUserName) {
@@ -27,6 +28,13 @@ if (savedUserName) {
 
 let running = false;
 let lastOutputDir = null;
+
+// 实时累加器：边收行边更新顶部汇总，结束后由后端 summary 校准。
+let acc = freshAcc();
+
+function freshAcc() {
+  return { totalCents: 0, count: 0, success: 0, failed: 0, missing: 0 };
+}
 
 $pickBtn.addEventListener("click", async () => {
   if (running) return;
@@ -41,7 +49,7 @@ $runBtn.addEventListener("click", runRename);
 
 $clearBtn.addEventListener("click", () => {
   if (running) return;
-  clearLog();
+  resetTable();
   setMode("idle");
 });
 
@@ -50,11 +58,7 @@ $openFolderBtn.addEventListener("click", async () => {
   try {
     await invoke("open_folder", { path: lastOutputDir });
   } catch (e) {
-    appendLog({
-      ts: new Date().toTimeString().slice(0, 8),
-      level: "error",
-      message: typeof e === "string" ? e : JSON.stringify(e),
-    });
+    showError(typeof e === "string" ? e : JSON.stringify(e));
   }
 });
 
@@ -105,51 +109,112 @@ function hideOpenFolderBtn() {
   $openFolderBtn.hidden = true;
 }
 
-function clearLog() {
-  $log.replaceChildren();
+/// 把「分」格式化为人民币显示，与后端 format_amount 对齐：98301 -> "¥983.01"。
+function formatAmount(cents) {
+  const sign = cents < 0 ? "-" : "";
+  const abs = Math.abs(cents);
+  const yuan = Math.floor(abs / 100).toLocaleString("en-US");
+  const frac = String(abs % 100).padStart(2, "0");
+  return `¥${sign}${yuan}.${frac}`;
 }
 
-function classifyLevel(entry) {
-  const lvl = (entry.level || "info").toLowerCase();
-  if (lvl === "info" && SUMMARY_RE.test(entry.message)) {
-    const m = entry.message.match(SUMMARY_RE);
-    if (m) return +m[2] === 0 ? "success" : "summary-fail";
+function resetTable() {
+  $resultBody.replaceChildren();
+  acc = freshAcc();
+  $summaryAmount.textContent = "¥0.00";
+  renderStats(acc);
+}
+
+function renderStats({ count, success, failed, missing }) {
+  $summaryStats.replaceChildren();
+  const parts = [
+    { text: `共 ${count} 张` },
+    { text: `成功 ${success}` },
+    { text: `失败 ${failed}`, cls: failed > 0 ? "stat-fail" : null },
+    { text: `未识别金额 ${missing}`, cls: missing > 0 ? "stat-warn" : null },
+  ];
+  parts.forEach((p, i) => {
+    if (i > 0) $summaryStats.append(document.createTextNode(" · "));
+    const span = document.createElement("span");
+    span.textContent = p.text;
+    if (p.cls) span.className = p.cls;
+    $summaryStats.append(span);
+  });
+}
+
+function updateProgress(cur, total) {
+  if (total > 0) {
+    $progressTrack.hidden = false;
+    $progressFill.style.width = `${((cur / total) * 100).toFixed(1)}%`;
+    $progressText.textContent = `${cur} / ${total}`;
   }
-  return lvl;
 }
 
-function appendLog(entry) {
-  const level = classifyLevel(entry);
+function makeCell(cls, text, title) {
+  const td = document.createElement("td");
+  td.className = cls;
+  td.textContent = text;
+  if (title) td.title = title;
+  return td;
+}
 
-  const line = document.createElement("div");
-  line.className = `log-line ${level}`;
+function renderRow(row) {
+  const tr = document.createElement("tr");
+  if (row.status === "failed") tr.className = "row-failed";
 
-  const lvlBadge = document.createElement("span");
-  lvlBadge.className = "log-level";
-  lvlBadge.textContent =
-    level === "success" ? "DONE" : level === "summary-fail" ? "FAIL" : level.toUpperCase();
+  tr.append(makeCell("cell-idx", String(row.index)));
+  tr.append(makeCell("cell-name", row.sourceName, row.sourceName));
+  tr.append(makeCell("cell-invoice", row.invoiceNumber || "—", row.invoiceNumber || ""));
 
-  const ts = document.createElement("span");
-  ts.className = "log-ts";
-  ts.textContent = entry.ts || "";
+  const amountMissing = row.amountCents === null || row.amountCents === undefined;
+  tr.append(
+    makeCell(amountMissing ? "cell-amount missing" : "cell-amount", row.amountDisplay || "—")
+  );
 
-  const msg = document.createElement("span");
-  msg.className = "log-msg";
-  msg.textContent = entry.message;
+  const statusCell = document.createElement("td");
+  statusCell.className = "cell-status";
+  const badge = document.createElement("span");
+  badge.className = `status-badge ${row.status === "success" ? "ok" : "fail"}`;
+  badge.textContent = row.status === "success" ? "✓" : "✗";
+  if (row.note) badge.title = row.note;
+  statusCell.append(badge);
+  tr.append(statusCell);
 
-  line.append(lvlBadge, ts, msg);
-  $log.appendChild(line);
-  $log.scrollTop = $log.scrollHeight;
+  $resultBody.append(tr);
+  $resultTable.scrollTop = $resultTable.scrollHeight;
 
-  const m = entry.message.match(PROGRESS_RE);
-  if (m) {
-    const cur = +m[1];
-    const total = +m[2];
-    if (total > 0) {
-      $progressTrack.hidden = false;
-      $progressFill.style.width = `${((cur / total) * 100).toFixed(1)}%`;
-      $progressText.textContent = `${cur} / ${total}`;
-    }
+  // 实时累加
+  acc.count += 1;
+  if (row.status === "success") acc.success += 1;
+  else acc.failed += 1;
+  if (amountMissing) {
+    acc.missing += 1;
+  } else {
+    acc.totalCents += row.amountCents;
+  }
+  $summaryAmount.textContent = formatAmount(acc.totalCents);
+  renderStats(acc);
+  updateProgress(row.index, row.total);
+}
+
+function updateSummary(summary) {
+  // 用后端权威汇总校准，避免实时累加的边界误差。
+  $summaryAmount.textContent = formatAmount(summary.totalAmountCents);
+  renderStats({
+    count: summary.total,
+    success: summary.success,
+    failed: summary.failed,
+    missing: summary.amountMissing,
+  });
+
+  if (summary.total === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 5;
+    td.className = "table-empty";
+    td.textContent = "未找到 PDF 文件";
+    tr.append(td);
+    $resultBody.replaceChildren(tr);
   }
 }
 
@@ -163,7 +228,7 @@ async function runRename() {
   showError("");
   localStorage.setItem(USER_NAME_KEY, $userName.value.trim());
 
-  clearLog();
+  resetTable();
   setMode("run");
   $progressTrack.hidden = false;
   $progressFill.style.width = "0%";
@@ -172,24 +237,24 @@ async function runRename() {
   setRunning(true);
 
   const channel = new Channel();
-  channel.onmessage = (msg) => appendLog(msg);
+  channel.onmessage = (row) => renderRow(row);
 
   try {
     const summary = await invoke("rename_pdfs", {
       sourceDir: $sourceDir.value.trim(),
       userName: $userName.value.trim(),
       trackingNumber: $tracking.value.trim(),
-      onLog: channel,
+      onRow: channel,
     });
-    if (summary && summary.outputDir) {
-      showOpenFolderBtn(summary.outputDir);
+    if (summary) {
+      updateSummary(summary);
+      if (summary.outputDir) {
+        showOpenFolderBtn(summary.outputDir);
+      }
     }
   } catch (e) {
-    appendLog({
-      ts: new Date().toTimeString().slice(0, 8),
-      level: "error",
-      message: typeof e === "string" ? e : JSON.stringify(e),
-    });
+    showError(typeof e === "string" ? e : JSON.stringify(e));
+    setMode("idle");
   } finally {
     setRunning(false);
   }

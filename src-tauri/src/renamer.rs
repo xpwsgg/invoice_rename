@@ -1,4 +1,5 @@
 use crate::error::AppError;
+use crate::pdf_parser::InvoiceInfo;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
@@ -7,26 +8,42 @@ pub struct RenamePlan {
     pub source: PathBuf,
     pub target: PathBuf,
     pub invoice_number: Option<String>,
+    pub total_amount_cents: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct RenameSummary {
     pub total: usize,
     pub success: usize,
     pub failed: usize,
-    #[serde(rename = "outputDir")]
     pub output_dir: Option<String>,
+    /// 已识别金额之和（分）。基于所有扫描到的发票，与复制成败无关。
+    pub total_amount_cents: i64,
+    pub amount_recognized: usize,
+    pub amount_missing: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct LogEntry {
-    pub ts: String,
-    pub level: String,
-    pub message: String,
+/// 发给前端的「一行发票结果」。serde 统一 camelCase 供前端直接消费。
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct InvoiceRow {
+    pub index: usize,
+    pub total: usize,
+    pub source_name: String,
+    pub invoice_number: Option<String>,
+    pub amount_cents: Option<i64>,
+    /// 后端预格式化的金额，如 "¥93.33"；无金额时为 None。
+    pub amount_display: Option<String>,
+    /// "success" | "failed"
+    pub status: String,
+    /// 失败/警示原因；成功且无异常时为空串。
+    pub note: String,
 }
 
-pub trait Logger {
-    fn log(&mut self, entry: LogEntry);
+/// 进度回调：每处理完一张发票推送一行结果。
+pub trait ProgressSink {
+    fn row(&mut self, row: InvoiceRow);
 }
 
 /// 文件名中不允许出现的字符（跨平台保守集合）
@@ -44,6 +61,28 @@ pub fn validate_name(field: &str, value: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+/// 把「分」格式化为带千分位的人民币显示：98301 -> "¥983.01"、1234567 -> "¥12,345.67"、0 -> "¥0.00"。
+pub fn format_amount(cents: i64) -> String {
+    let yuan = cents / 100;
+    let frac = cents % 100;
+    format!("¥{}.{:02}", with_thousands(yuan), frac)
+}
+
+/// 为非负整数插入千分位逗号。
+fn with_thousands(n: i64) -> String {
+    let digits = n.to_string();
+    let bytes = digits.as_bytes();
+    let len = bytes.len();
+    let mut out = String::with_capacity(len + len / 3);
+    for (i, b) in bytes.iter().enumerate() {
+        if i > 0 && (len - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(*b as char);
+    }
+    out
+}
+
 /// 扫描源目录顶层 PDF 文件，结合提取函数构造重命名计划。
 pub fn build_plan<F>(
     source_dir: &Path,
@@ -52,7 +91,7 @@ pub fn build_plan<F>(
     extract_fn: F,
 ) -> Result<Vec<RenamePlan>, AppError>
 where
-    F: Fn(&Path) -> Result<Option<String>, AppError>,
+    F: Fn(&Path) -> Result<InvoiceInfo, AppError>,
 {
     validate_name("用户名", user_name)?;
     validate_name("Tracking Number", tracking_number)?;
@@ -77,7 +116,11 @@ where
             continue;
         }
 
-        let invoice = extract_fn(&path).unwrap_or(None);
+        let info = extract_fn(&path).unwrap_or_else(|_| InvoiceInfo {
+            number: None,
+            total_amount_cents: None,
+        });
+        let invoice = info.number;
         let prefix = invoice.clone().unwrap_or_else(|| "UNKNOWN".to_string());
         let filename = format!("{prefix}-{user_name}-{tracking_number}.pdf");
         let target = output_dir.join(filename);
@@ -86,6 +129,7 @@ where
             source: path,
             target,
             invoice_number: invoice,
+            total_amount_cents: info.total_amount_cents,
         });
     }
 
@@ -102,16 +146,10 @@ fn is_pdf(path: &Path) -> bool {
 
 const MAX_DEDUPE: u32 = 999;
 
-fn timestamp() -> String {
-    chrono::Local::now().format("%H:%M:%S").to_string()
-}
-
-fn make_log(level: &str, message: impl Into<String>) -> LogEntry {
-    LogEntry {
-        ts: timestamp(),
-        level: level.to_string(),
-        message: message.into(),
-    }
+fn file_name_of(p: &Path) -> String {
+    p.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default()
 }
 
 /// 在 `target` 已存在时尝试 `name-1.pdf`、`name-2.pdf`… 直到上限 999。
@@ -137,11 +175,16 @@ fn resolve_target(target: &Path) -> Option<(PathBuf, u32)> {
     None
 }
 
-pub fn execute_plan<L: Logger>(plans: &[RenamePlan], logger: &mut L) -> RenameSummary {
+/// 执行重命名计划：逐张复制并通过 `sink` 推送每行结果，最后返回汇总。
+/// 金额统计基于所有扫描到的发票（与复制成败无关）。
+pub fn execute_plan<S: ProgressSink>(plans: &[RenamePlan], sink: &mut S) -> RenameSummary {
     let total = plans.len();
     let mut success = 0usize;
     let mut failed = 0usize;
     let mut copied = 0usize;
+    let mut total_amount_cents = 0i64;
+    let mut amount_recognized = 0usize;
+    let mut amount_missing = 0usize;
 
     let output_dir: Option<String> = plans
         .first()
@@ -149,103 +192,90 @@ pub fn execute_plan<L: Logger>(plans: &[RenamePlan], logger: &mut L) -> RenameSu
         .map(|p| p.display().to_string());
 
     if total == 0 {
-        logger.log(make_log("warn", "未找到 PDF 文件"));
         return RenameSummary {
             total,
             success,
             failed,
             output_dir: None,
+            total_amount_cents,
+            amount_recognized,
+            amount_missing,
         };
     }
 
-    logger.log(make_log("info", format!("扫描到 {total} 个 PDF 文件")));
-
-    // 输出目录由第一个 plan 的 target.parent 决定
-    if let Some(first) = plans.first() {
-        if let Some(out_dir) = first.target.parent() {
-            if let Err(e) = std::fs::create_dir_all(out_dir) {
-                logger.log(make_log(
-                    "error",
-                    format!("创建输出目录失败：{} ({e})", out_dir.display()),
-                ));
-                return RenameSummary {
-                    total,
-                    success,
-                    failed: total,
-                    output_dir: None,
-                };
-            }
-        }
+    // 尽力创建输出目录（幂等）。command 层已提前创建并对失败返回全局错误；
+    // 万一此处仍失败，后续 copy 会各自失败并被记为 failed 行。
+    if let Some(out_dir) = plans.first().and_then(|p| p.target.parent()) {
+        let _ = std::fs::create_dir_all(out_dir);
     }
-
-    let started = std::time::Instant::now();
 
     for (idx, plan) in plans.iter().enumerate() {
         let i = idx + 1;
-        let src_name = plan
-            .source
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
+        let src_name = file_name_of(&plan.source);
 
-        match resolve_target(&plan.target) {
+        // 金额汇总：基于所有扫描到的发票，与复制成败无关。
+        match plan.total_amount_cents {
+            Some(c) => {
+                total_amount_cents += c;
+                amount_recognized += 1;
+            }
+            None => amount_missing += 1,
+        }
+
+        let (status, note) = match resolve_target(&plan.target) {
             None => {
-                logger.log(make_log(
-                    "error",
-                    format!("[{i}/{total}] {src_name} 跳过：同名文件序号已耗尽（>{MAX_DEDUPE}）"),
-                ));
                 failed += 1;
+                (
+                    "failed".to_string(),
+                    format!("同名文件序号已耗尽（>{MAX_DEDUPE}）"),
+                )
             }
             Some((final_target, dedupe_n)) => match std::fs::copy(&plan.source, &final_target) {
                 Ok(_) => {
                     copied += 1;
-                    let target_name = final_target
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_default();
                     let suffix_note = if dedupe_n > 0 {
-                        "（同名已存在，加序号）"
+                        "（同名已存在，已加序号）"
                     } else {
                         ""
                     };
                     if plan.invoice_number.is_none() {
-                        logger.log(make_log(
-                            "warn",
-                            format!(
-                                "[{i}/{total}] {src_name} → {target_name}{suffix_note}（未识别发票号，需手工补救）"
-                            ),
-                        ));
                         failed += 1;
+                        (
+                            "failed".to_string(),
+                            format!("未识别发票号，已存为 UNKNOWN{suffix_note}，需手工补救"),
+                        )
                     } else {
-                        logger.log(make_log(
-                            "info",
-                            format!("[{i}/{total}] {src_name} → {target_name}{suffix_note}"),
-                        ));
                         success += 1;
+                        ("success".to_string(), suffix_note.to_string())
                     }
                 }
                 Err(e) => {
-                    logger.log(make_log(
-                        "error",
-                        format!("[{i}/{total}] {src_name} 复制失败：{e}"),
-                    ));
                     failed += 1;
+                    ("failed".to_string(), format!("复制失败：{e}"))
                 }
             },
-        }
-    }
+        };
 
-    let secs = started.elapsed().as_secs_f32();
-    logger.log(make_log(
-        "info",
-        format!("完成：成功 {success}，失败 {failed}，耗时 {secs:.1}s"),
-    ));
+        sink.row(InvoiceRow {
+            index: i,
+            total,
+            source_name: src_name,
+            invoice_number: plan.invoice_number.clone(),
+            amount_cents: plan.total_amount_cents,
+            amount_display: plan.total_amount_cents.map(format_amount),
+            status,
+            note,
+        });
+    }
 
     RenameSummary {
         total,
         success,
         failed,
         output_dir: if copied > 0 { output_dir } else { None },
+        total_amount_cents,
+        amount_recognized,
+        amount_missing,
     }
 }
 
@@ -261,12 +291,18 @@ mod tests {
         p
     }
 
-    fn ok_extract(_: &Path) -> Result<Option<String>, AppError> {
-        Ok(Some("26322000000893295511".to_string()))
+    fn ok_extract(_: &Path) -> Result<InvoiceInfo, AppError> {
+        Ok(InvoiceInfo {
+            number: Some("26322000000893295511".to_string()),
+            total_amount_cents: Some(9333),
+        })
     }
 
-    fn none_extract(_: &Path) -> Result<Option<String>, AppError> {
-        Ok(None)
+    fn none_extract(_: &Path) -> Result<InvoiceInfo, AppError> {
+        Ok(InvoiceInfo {
+            number: None,
+            total_amount_cents: None,
+        })
     }
 
     #[test]
@@ -316,6 +352,7 @@ mod tests {
         assert_eq!(plans.len(), 1);
         let p = &plans[0];
         assert_eq!(p.invoice_number.as_deref(), Some("26322000000893295511"));
+        assert_eq!(p.total_amount_cents, Some(9333));
         assert_eq!(
             p.target,
             dir.path()
@@ -331,23 +368,20 @@ mod tests {
         let plans = build_plan(dir.path(), "Felix", "TN", none_extract).unwrap();
         assert_eq!(plans.len(), 1);
         assert_eq!(plans[0].invoice_number, None);
+        assert_eq!(plans[0].total_amount_cents, None);
         assert_eq!(
-            plans[0]
-                .target
-                .file_name()
-                .unwrap()
-                .to_string_lossy(),
+            plans[0].target.file_name().unwrap().to_string_lossy(),
             "UNKNOWN-Felix-TN.pdf"
         );
     }
 
     #[derive(Default)]
-    struct VecLogger {
-        entries: Vec<LogEntry>,
+    struct RowSink {
+        rows: Vec<InvoiceRow>,
     }
-    impl Logger for VecLogger {
-        fn log(&mut self, entry: LogEntry) {
-            self.entries.push(entry);
+    impl ProgressSink for RowSink {
+        fn row(&mut self, row: InvoiceRow) {
+            self.rows.push(row);
         }
     }
 
@@ -358,18 +392,33 @@ mod tests {
     }
 
     #[test]
+    fn format_amount_basic() {
+        assert_eq!(format_amount(98301), "¥983.01");
+        assert_eq!(format_amount(1234567), "¥12,345.67");
+        assert_eq!(format_amount(0), "¥0.00");
+        assert_eq!(format_amount(9333), "¥93.33");
+        assert_eq!(format_amount(100), "¥1.00");
+        assert_eq!(format_amount(5), "¥0.05");
+    }
+
+    #[test]
     fn execute_copies_files_to_output_subdir() {
         let dir = TempDir::new().unwrap();
         make_pdf(dir.path(), "a.pdf", "AAA");
         make_pdf(dir.path(), "b.pdf", "BBB");
 
         let plans = build_plan(dir.path(), "Felix", "TN", ok_extract).unwrap();
-        let mut logger = VecLogger::default();
-        let summary = execute_plan(&plans, &mut logger);
+        let mut sink = RowSink::default();
+        let summary = execute_plan(&plans, &mut sink);
 
         assert_eq!(summary.total, 2);
         assert_eq!(summary.success, 2);
         assert_eq!(summary.failed, 0);
+        // 金额汇总：每张 9333，共 18666，全部识别
+        assert_eq!(summary.total_amount_cents, 18666);
+        assert_eq!(summary.amount_recognized, 2);
+        assert_eq!(summary.amount_missing, 0);
+        assert_eq!(sink.rows.len(), 2);
 
         let out = dir.path().join("TN");
         assert!(out.is_dir());
@@ -386,8 +435,8 @@ mod tests {
         make_pdf(dir.path(), "b.pdf", "second");
 
         let plans = build_plan(dir.path(), "Felix", "TN", ok_extract).unwrap();
-        let mut logger = VecLogger::default();
-        let summary = execute_plan(&plans, &mut logger);
+        let mut sink = RowSink::default();
+        let summary = execute_plan(&plans, &mut sink);
 
         assert_eq!(summary.success, 2);
         let out = dir.path().join("TN");
@@ -398,34 +447,74 @@ mod tests {
     }
 
     #[test]
-    fn execute_empty_plan_logs_warn() {
+    fn execute_empty_plan_returns_zeroed_summary() {
         let plans: Vec<RenamePlan> = Vec::new();
-        let mut logger = VecLogger::default();
-        let s = execute_plan(&plans, &mut logger);
+        let mut sink = RowSink::default();
+        let s = execute_plan(&plans, &mut sink);
         assert_eq!(s.total, 0);
         assert_eq!(s.success, 0);
         assert_eq!(s.failed, 0);
-        assert!(logger
-            .entries
-            .iter()
-            .any(|e| e.message.contains("未找到 PDF")));
+        assert_eq!(s.total_amount_cents, 0);
+        assert_eq!(s.amount_recognized, 0);
+        assert_eq!(s.amount_missing, 0);
+        assert_eq!(s.output_dir, None);
+        assert!(sink.rows.is_empty());
     }
 
     #[test]
-    fn execute_unknown_logs_warn_but_still_copies() {
+    fn execute_unknown_marks_failed_but_still_copies() {
         let dir = TempDir::new().unwrap();
         make_pdf(dir.path(), "a.pdf", "AAA");
         let plans = build_plan(dir.path(), "Felix", "TN", none_extract).unwrap();
-        let mut logger = VecLogger::default();
-        let s = execute_plan(&plans, &mut logger);
+        let mut sink = RowSink::default();
+        let s = execute_plan(&plans, &mut sink);
         assert_eq!(s.success, 0);
         assert_eq!(s.failed, 1);
-        assert!(logger
-            .entries
-            .iter()
-            .any(|e| e.level == "warn" && e.message.contains("UNKNOWN")));
+        assert_eq!(sink.rows.len(), 1);
+        assert_eq!(sink.rows[0].status, "failed");
+        assert!(sink.rows[0].note.contains("未识别发票号"));
         assert!(dir.path().join("TN").join("UNKNOWN-Felix-TN.pdf").exists());
         // UNKNOWN 占位但已落地：仍应返回 output_dir，便于用户手工补救
         assert!(s.output_dir.is_some());
+    }
+
+    #[test]
+    fn execute_aggregates_amounts_independent_of_copy() {
+        // 手工构造混合计划：a 有发票号+金额，b 无发票号+无金额
+        let dir = TempDir::new().unwrap();
+        make_pdf(dir.path(), "a.pdf", "AAA");
+        make_pdf(dir.path(), "b.pdf", "BBB");
+        let out = dir.path().join("TN");
+        let plans = vec![
+            RenamePlan {
+                source: dir.path().join("a.pdf"),
+                target: out.join("INV1-Felix-TN.pdf"),
+                invoice_number: Some("INV1".to_string()),
+                total_amount_cents: Some(9333),
+            },
+            RenamePlan {
+                source: dir.path().join("b.pdf"),
+                target: out.join("UNKNOWN-Felix-TN.pdf"),
+                invoice_number: None,
+                total_amount_cents: None,
+            },
+        ];
+        let mut sink = RowSink::default();
+        let s = execute_plan(&plans, &mut sink);
+
+        assert_eq!(s.total_amount_cents, 9333);
+        assert_eq!(s.amount_recognized, 1);
+        assert_eq!(s.amount_missing, 1);
+        assert_eq!(sink.rows.len(), 2);
+
+        assert_eq!(sink.rows[0].amount_cents, Some(9333));
+        assert_eq!(sink.rows[0].amount_display.as_deref(), Some("¥93.33"));
+        assert_eq!(sink.rows[0].status, "success");
+        assert_eq!(sink.rows[0].index, 1);
+        assert_eq!(sink.rows[0].total, 2);
+
+        assert_eq!(sink.rows[1].amount_cents, None);
+        assert_eq!(sink.rows[1].amount_display, None);
+        assert_eq!(sink.rows[1].status, "failed");
     }
 }

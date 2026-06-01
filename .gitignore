@@ -23,3 +23,7 @@ Cargo.lock
 
 # OMC working directory
 .omc/
+
+# 测试样本发票（含隐私，不提交；本地放置用于回归）
+/src-tauri/tests/fixtures/**/*.pdf
+/src-tauri/tests/fixtures/*.pdf
