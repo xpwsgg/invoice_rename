@@ -24,6 +24,9 @@ Cargo.lock
 # OMC working directory
 .omc/
 
+# Superpowers 工作目录（brainstorm mockup 等草稿，不入库）
+.superpowers/
+
 # 测试样本发票（含隐私，不提交；本地放置用于回归）
 /src-tauri/tests/fixtures/**/*.pdf
 /src-tauri/tests/fixtures/*.pdf
