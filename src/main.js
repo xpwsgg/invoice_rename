@@ -143,7 +143,7 @@ function updateProgress(cur, total) {
   if (total > 0) {
     $progressTrack.hidden = false;
     $progressFill.style.width = `${((cur / total) * 100).toFixed(1)}%`;
-    $progressText.textContent = `${cur} / ${total}`;
+    $progressText.textContent = `处理中 ${cur} / ${total}`;
   }
 }
 
@@ -213,6 +213,7 @@ function updateSummary(summary) {
     tr.append(td);
     $resultBody.replaceChildren(tr);
   }
+  $progressTrack.hidden = true;
 }
 
 async function runRename() {
@@ -229,7 +230,7 @@ async function runRename() {
   setMode("run");
   $progressTrack.hidden = false;
   $progressFill.style.width = "0%";
-  $progressText.textContent = "0 / 0";
+  $progressText.textContent = "处理中 0 / 0";
   hideOpenFolderBtn();
   setRunning(true);
 

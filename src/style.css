@@ -371,6 +371,10 @@ button:disabled {
   gap: 10px;
 }
 
+.progress[hidden] {
+  display: none;
+}
+
 .progress-bar {
   flex: 1;
   height: 4px;
@@ -391,7 +395,7 @@ button:disabled {
   font-size: 11px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
-  min-width: 56px;
+  min-width: 84px;
   text-align: right;
 }
 
