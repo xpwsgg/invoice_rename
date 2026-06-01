@@ -1,57 +1,33 @@
 :root {
-  --bg: #f5f5f7;
-  --fg: #1d1d1f;
-  --muted: #6e6e73;
-  --border: #d2d2d7;
-  --hairline: rgba(0, 0, 0, 0.06);
+  --bg: #f4f5f7;
+  --fg: #1b1f27;
+  --muted: #6b7280;
+  --faint: #9ca3af;
+  --border: #e5e7eb;
+  --hairline: #f1f2f4;
   --surface: #ffffff;
-  --surface-elevated: #fbfbfd;
-  --surface-soft: #f0f0f3;
-  --accent: #0a84ff;
-  --accent-strong: #0066d6;
-  --accent-ring: rgba(10, 132, 255, 0.22);
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.04), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
-  --shadow-button: 0 1px 2px rgba(10, 132, 255, 0.25);
+  --surface-elevated: #fafbfc;
+  --surface-soft: #f3f4f6;
+  --accent: #2f6bff;
+  --accent-strong: #2257e0;
+  --accent-soft: #eef3ff;
+  --accent-ring: rgba(47, 107, 255, 0.18);
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-button: 0 1px 2px rgba(47, 107, 255, 0.22);
 
-  --error: #d70015;
-  --error-soft: rgba(215, 0, 21, 0.12);
-  --warn: #c46a00;
-  --warn-soft: rgba(196, 106, 0, 0.14);
-  --info: #5b6470;
-  --info-soft: rgba(91, 100, 112, 0.12);
-  --success: #1f8b4c;
-  --success-soft: rgba(31, 139, 76, 0.14);
+  --error: #e5484d;
+  --error-soft: #fdeced;
+  --warn: #d97706;
+  --warn-soft: #fdf0e3;
+  --success: #16a34a;
+  --success-soft: #e8f6ee;
+  --info: #6b7280;
+  --info-soft: #eef0f2;
 
-  font-family: -apple-system, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro SC", "SF Pro Text",
+    "PingFang SC", "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1a1a1c;
-    --fg: #f5f5f7;
-    --muted: #98989d;
-    --border: #3a3a3c;
-    --hairline: rgba(255, 255, 255, 0.07);
-    --surface: #232326;
-    --surface-elevated: #2c2c2f;
-    --surface-soft: #2a2a2d;
-    --accent: #0a84ff;
-    --accent-strong: #1a73d6;
-    --accent-ring: rgba(10, 132, 255, 0.32);
-    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45), 0 0 0 0.5px rgba(255, 255, 255, 0.06);
-    --shadow-button: 0 1px 2px rgba(0, 0, 0, 0.4);
-
-    --error: #ff453a;
-    --error-soft: rgba(255, 69, 58, 0.18);
-    --warn: #ff9f0a;
-    --warn-soft: rgba(255, 159, 10, 0.18);
-    --info: #aeb1b6;
-    --info-soft: rgba(174, 177, 182, 0.16);
-    --success: #30d158;
-    --success-soft: rgba(48, 209, 88, 0.18);
-  }
 }
 
 * {
