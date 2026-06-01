@@ -11,7 +11,6 @@ const $pickBtn = document.getElementById("pickDirBtn");
 const $runBtn = document.getElementById("runBtn");
 const $err = document.getElementById("formError");
 const $panel = document.querySelector(".panel");
-const $clearBtn = document.getElementById("clearLogBtn");
 const $openFolderBtn = document.getElementById("openFolderBtn");
 const $progressTrack = document.getElementById("progressTrack");
 const $progressFill = document.getElementById("progressFill");
@@ -47,12 +46,6 @@ $pickBtn.addEventListener("click", async () => {
 
 $runBtn.addEventListener("click", runRename);
 
-$clearBtn.addEventListener("click", () => {
-  if (running) return;
-  resetTable();
-  setMode("idle");
-});
-
 $openFolderBtn.addEventListener("click", async () => {
   if (!lastOutputDir) return;
   try {
@@ -85,7 +78,6 @@ function setRunning(flag) {
   $pickBtn.disabled = flag;
   $userName.disabled = flag;
   $tracking.disabled = flag;
-  $clearBtn.disabled = flag;
   $runBtn.textContent = flag ? "处理中…" : "开始重命名";
 }
 

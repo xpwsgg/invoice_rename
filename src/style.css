@@ -363,11 +363,6 @@ button:disabled {
   display: none;
 }
 
-.panel[data-mode="idle"] #clearLogBtn {
-  visibility: hidden;
-  pointer-events: none;
-}
-
 /* ---------- Progress ---------- */
 
 .progress {
