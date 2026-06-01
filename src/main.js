@@ -118,20 +118,25 @@ function resetTable() {
 }
 
 function renderStats({ count, success, failed, missing }) {
-  $summaryStats.replaceChildren();
-  const parts = [
-    { text: `共 ${count} 张` },
-    { text: `成功 ${success}` },
-    { text: `失败 ${failed}`, cls: failed > 0 ? "stat-fail" : null },
-    { text: `未识别金额 ${missing}`, cls: missing > 0 ? "stat-warn" : null },
+  const cols = [
+    { num: count, label: "总张数" },
+    { num: success, label: "成功" },
+    { num: failed, label: "失败", cls: failed > 0 ? "is-fail" : null },
+    { num: missing, label: "未识别金额", cls: missing > 0 ? "is-warn" : null },
   ];
-  parts.forEach((p, i) => {
-    if (i > 0) $summaryStats.append(document.createTextNode(" · "));
-    const span = document.createElement("span");
-    span.textContent = p.text;
-    if (p.cls) span.className = p.cls;
-    $summaryStats.append(span);
-  });
+  $summaryStats.replaceChildren();
+  for (const c of cols) {
+    const col = document.createElement("div");
+    col.className = "summary-stat" + (c.cls ? ` ${c.cls}` : "");
+    const num = document.createElement("span");
+    num.className = "st-num";
+    num.textContent = String(c.num);
+    const label = document.createElement("span");
+    label.className = "st-label";
+    label.textContent = c.label;
+    col.append(num, label);
+    $summaryStats.append(col);
+  }
 }
 
 function updateProgress(cur, total) {

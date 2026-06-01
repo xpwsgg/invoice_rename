@@ -488,9 +488,9 @@ button:disabled {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 14px;
-  background: var(--surface-elevated);
+  gap: 16px;
+  padding: 14px 16px;
+  background: var(--surface);
   border: 1px solid var(--hairline);
   border-radius: 8px;
 }
@@ -498,7 +498,7 @@ button:disabled {
 .summary-total {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -507,34 +507,49 @@ button:disabled {
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--faint);
 }
 
 .summary-total-value {
-  font-size: 26px;
+  font-size: 32px;
   font-weight: 700;
-  letter-spacing: -0.01em;
-  line-height: 1.1;
-  color: var(--accent);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  color: var(--fg);
   font-variant-numeric: tabular-nums;
 }
 
 .summary-stats {
-  font-size: 12px;
-  color: var(--muted);
+  display: flex;
+  gap: 18px;
   text-align: right;
-  line-height: 1.5;
+}
+
+.summary-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.summary-stat .st-num {
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.1;
   font-variant-numeric: tabular-nums;
+  color: var(--fg);
 }
 
-.summary-stats .stat-fail {
+.summary-stat .st-label {
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.summary-stat.is-fail .st-num {
   color: var(--error);
-  font-weight: 600;
 }
 
-.summary-stats .stat-warn {
+.summary-stat.is-warn .st-num {
   color: var(--warn);
-  font-weight: 600;
 }
 
 /* ---------- Result table ---------- */
