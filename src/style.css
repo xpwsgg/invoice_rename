@@ -199,7 +199,9 @@ button.ghost:hover:not(:disabled) {
 
 button.ghost-accent {
   color: var(--accent);
-  font-weight: 500;
+  background: var(--accent-soft);
+  border-color: transparent;
+  font-weight: 550;
 }
 
 button.ghost-accent:hover:not(:disabled) {
@@ -600,6 +602,14 @@ button:disabled {
 
 .result-table tbody tr:last-child td {
   border-bottom: none;
+}
+
+.result-table tbody tr:hover td {
+  background: var(--surface-elevated);
+}
+
+.result-table tbody tr.row-failed:hover td {
+  background: var(--error-soft);
 }
 
 /* 列宽与对齐 */
