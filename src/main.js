@@ -85,6 +85,7 @@ function setMode(mode) {
   $panel.dataset.mode = mode;
   if (mode === "idle") {
     $progressTrack.hidden = true;
+    $progressTrack.classList.remove("is-done");
     $progressFill.style.width = "0%";
     $progressText.textContent = "0 / 0";
     hideOpenFolderBtn();
@@ -212,8 +213,14 @@ function updateSummary(summary) {
     td.textContent = "未找到 PDF 文件";
     tr.append(td);
     $resultBody.replaceChildren(tr);
+    $progressTrack.hidden = true;
+    return;
   }
-  $progressTrack.hidden = true;
+  // 完成态：进度条满格变绿 + 「✓ 处理完成」，给出明确的完成时刻反馈。
+  $progressTrack.hidden = false;
+  $progressTrack.classList.add("is-done");
+  $progressFill.style.width = "100%";
+  $progressText.textContent = `✓ 处理完成 ${summary.total} / ${summary.total}`;
 }
 
 async function runRename() {
@@ -229,6 +236,7 @@ async function runRename() {
   resetTable();
   setMode("run");
   $progressTrack.hidden = false;
+  $progressTrack.classList.remove("is-done");
   $progressFill.style.width = "0%";
   $progressText.textContent = "处理中 0 / 0";
   hideOpenFolderBtn();

@@ -377,6 +377,14 @@ button:disabled {
   display: none;
 }
 
+.progress.is-done .progress-fill {
+  background: var(--success);
+}
+
+.progress.is-done .progress-text {
+  color: var(--success);
+}
+
 .progress-bar {
   flex: 1;
   height: 4px;
