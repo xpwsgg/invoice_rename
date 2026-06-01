@@ -13,29 +13,18 @@
         <p class="subtitle">按 发票号 · 用户名 · Tracking Number 自动重命名 PDF</p>
       </header>
 
-      <section class="card form">
-        <label class="field">
-          <span class="field-label">源文件夹</span>
-          <div class="row">
-            <input id="sourceDir" type="text" readonly placeholder="点击右侧选择文件夹" />
-            <button id="pickDirBtn" type="button">选择</button>
+      <section class="card toolbar">
+        <div class="tb-row">
+          <div class="tb-folder">
+            <span class="tb-folder-icon">📁</span>
+            <input id="sourceDir" type="text" readonly placeholder="点击选择源文件夹" />
+            <button id="pickDirBtn" type="button" class="tb-pick">选择</button>
           </div>
-        </label>
-
-        <label class="field">
-          <span class="field-label">用户名</span>
-          <input id="userName" type="text" placeholder="如：Felix" autocomplete="off" />
-        </label>
-
-        <label class="field">
-          <span class="field-label">Tracking Number</span>
-          <input id="trackingNumber" type="text" placeholder="如：000-115-216" autocomplete="off" />
-        </label>
-
-        <div class="actions">
-          <span id="formError" class="error-text" aria-live="polite"></span>
+          <input id="userName" class="tb-input" type="text" placeholder="用户名，如 Felix" autocomplete="off" />
+          <input id="trackingNumber" class="tb-input tb-tn" type="text" placeholder="TN，如 000-116-216" autocomplete="off" />
           <button id="runBtn" type="button" class="primary">开始重命名</button>
         </div>
+        <span id="formError" class="error-text" aria-live="polite"></span>
       </section>
 
       <section class="card panel" data-mode="idle">
