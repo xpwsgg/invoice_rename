@@ -6,26 +6,57 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-macos:
     permissions:
       contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-14
-            artifact: macos-arm64
-            arch-suffix: arm64
-            rust-target: aarch64-apple-darwin
-          - os: macos-14
-            artifact: macos-x86_64
-            arch-suffix: x86_64
-            rust-target: x86_64-apple-darwin
-          - os: windows-latest
-            artifact: windows-portable
-            arch-suffix: ''
-            rust-target: ''
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: universal-apple-darwin
+
+      - run: npm ci
+
+      - name: Fetch PDFium (universal)
+        run: |
+          chmod +x scripts/fetch-pdfium.sh
+          ./scripts/fetch-pdfium.sh universal
+
+      - name: Build (Tauri, universal)
+        run: npm run tauri build -- --target universal-apple-darwin
+
+      - name: Rename DMG
+        run: mv src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg ESI-Invoice-Rename-macOS.dmg
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal
+          path: ESI-Invoice-Rename-macOS.dmg
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ESI-Invoice-Rename-macOS.dmg
+
+  build-windows:
+    permissions:
+      contents: write
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -37,64 +68,31 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Add Rust target (macOS)
-        if: runner.os == 'macOS'
-        run: rustup target add ${{ matrix.rust-target }}
-
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-          key: ${{ matrix.rust-target }}
 
       - run: npm ci
 
-      - name: Fetch PDFium (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          chmod +x scripts/fetch-pdfium.sh
-          ./scripts/fetch-pdfium.sh ${{ matrix.arch-suffix }}
-
       - name: Fetch PDFium (Windows)
-        if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/fetch-pdfium.ps1
 
-      - name: Build (Tauri, macOS)
-        if: runner.os == 'macOS'
-        run: npm run tauri build -- --target ${{ matrix.rust-target }}
-
       - name: Build (Tauri, Windows)
-        if: runner.os == 'Windows'
         run: npm run tauri build
 
-      - name: Rename macOS dmg
-        if: runner.os == 'macOS'
-        run: mv src-tauri/target/${{ matrix.rust-target }}/release/bundle/dmg/*.dmg ESI-Invoice-Rename-${{ matrix.arch-suffix }}.dmg
-
       - name: Rename Windows portable exe
-        if: runner.os == 'Windows'
         shell: pwsh
         run: Copy-Item src-tauri/target/release/pdf_rename.exe ESI-Invoice-Rename.exe
 
-      - name: Upload macOS artifact
-        if: runner.os == 'macOS'
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: ESI-Invoice-Rename-${{ matrix.arch-suffix }}.dmg
-
-      - name: Upload Windows artifact
-        if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
+          name: windows-portable
           path: ESI-Invoice-Rename.exe
 
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            ESI-Invoice-Rename-*.dmg
-            ESI-Invoice-Rename.exe
-          fail_on_unmatched_files: false
+          files: ESI-Invoice-Rename.exe
