@@ -18,7 +18,9 @@ download_pdfium() {
     *) echo "Unsupported arch: $arch" >&2; exit 1 ;;
   esac
   local url="https://github.com/bblanchon/pdfium-binaries/releases/latest/download/$pkg"
-  echo "Downloading $url"
+  # 日志必须走 stderr：本函数的 stdout 是“返回值”（库路径），会被 $(...) 捕获。
+  # 若日志混入 stdout，调用方拿到的路径会带上这行文本，导致 lipo/cp 拿到非法文件名。
+  echo "Downloading $url" >&2
   curl -fL "$url" -o "$TMP/$arch.tgz"
   mkdir -p "$TMP/$arch"
   tar -xzf "$TMP/$arch.tgz" -C "$TMP/$arch"
