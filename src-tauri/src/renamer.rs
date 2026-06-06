@@ -9,6 +9,9 @@ pub struct RenamePlan {
     pub target: PathBuf,
     pub invoice_number: Option<String>,
     pub total_amount_cents: Option<i64>,
+    /// PDF 解析错误信息。Some 表示 PDF 本身无法解析（加密/损坏/无法打开），
+    /// None 表示解析成功但可能未找到发票号。
+    pub parse_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -75,7 +78,7 @@ fn with_thousands(n: i64) -> String {
     let len = bytes.len();
     let mut out = String::with_capacity(len + len / 3);
     for (i, b) in bytes.iter().enumerate() {
-        if i > 0 && (len - i) % 3 == 0 {
+        if i > 0 && (len - i).is_multiple_of(3) {
             out.push(',');
         }
         out.push(*b as char);
@@ -116,10 +119,16 @@ where
             continue;
         }
 
-        let info = extract_fn(&path).unwrap_or_else(|_| InvoiceInfo {
-            number: None,
-            total_amount_cents: None,
-        });
+        let (info, parse_error) = match extract_fn(&path) {
+            Ok(info) => (info, None),
+            Err(e) => (
+                InvoiceInfo {
+                    number: None,
+                    total_amount_cents: None,
+                },
+                Some(e.to_string()),
+            ),
+        };
         let invoice = info.number;
         let prefix = invoice.clone().unwrap_or_else(|| "UNKNOWN".to_string());
         let filename = format!("{prefix}-{user_name}-{tracking_number}.pdf");
@@ -130,6 +139,7 @@ where
             target,
             invoice_number: invoice,
             total_amount_cents: info.total_amount_cents,
+            parse_error,
         });
     }
 
@@ -163,9 +173,9 @@ fn resolve_target(target: &Path) -> Option<(PathBuf, u32)> {
     let ext = target.extension().and_then(|e| e.to_str()).unwrap_or("");
     for n in 1..=MAX_DEDUPE {
         let candidate_name = if ext.is_empty() {
-            format!("{stem}_{n}")
+            format!("{stem}-{n}")
         } else {
-            format!("{stem}_{n}.{ext}")
+            format!("{stem}-{n}.{ext}")
         };
         let candidate = parent.join(candidate_name);
         if !candidate.exists() {
@@ -222,38 +232,49 @@ pub fn execute_plan<S: ProgressSink>(plans: &[RenamePlan], sink: &mut S) -> Rena
             None => amount_missing += 1,
         }
 
-        let (status, note) = match resolve_target(&plan.target) {
-            None => {
-                failed += 1;
-                (
-                    "failed".to_string(),
-                    format!("同名文件序号已耗尽（>{MAX_DEDUPE}）"),
-                )
-            }
-            Some((final_target, dedupe_n)) => match std::fs::copy(&plan.source, &final_target) {
-                Ok(_) => {
-                    copied += 1;
-                    let suffix_note = if dedupe_n > 0 {
-                        "（同名已存在，已加序号）"
-                    } else {
-                        ""
-                    };
-                    if plan.invoice_number.is_none() {
-                        failed += 1;
-                        (
-                            "failed".to_string(),
-                            format!("未识别发票号，已存为 UNKNOWN{suffix_note}，需手工补救"),
-                        )
-                    } else {
-                        success += 1;
-                        ("success".to_string(), suffix_note.to_string())
+        let (status, note) = if let Some(err) = &plan.parse_error {
+            // PDF 解析失败：不复制文件，直接标记为 failed
+            failed += 1;
+            ("failed".to_string(), err.clone())
+        } else {
+            // PDF 解析成功：尝试复制
+            match resolve_target(&plan.target) {
+                None => {
+                    failed += 1;
+                    (
+                        "failed".to_string(),
+                        format!("同名文件序号已耗尽（>{MAX_DEDUPE}）"),
+                    )
+                }
+                Some((final_target, dedupe_n)) => {
+                    match std::fs::copy(&plan.source, &final_target) {
+                        Ok(_) => {
+                            copied += 1;
+                            let suffix_note = if dedupe_n > 0 {
+                                "（同名已存在，已加序号）"
+                            } else {
+                                ""
+                            };
+                            if plan.invoice_number.is_none() {
+                                failed += 1;
+                                (
+                                    "failed".to_string(),
+                                    format!(
+                                        "未识别发票号，已存为 UNKNOWN{suffix_note}，需手工补救"
+                                    ),
+                                )
+                            } else {
+                                success += 1;
+                                ("success".to_string(), suffix_note.to_string())
+                            }
+                        }
+                        Err(e) => {
+                            failed += 1;
+                            ("failed".to_string(), format!("复制失败：{e}"))
+                        }
                     }
                 }
-                Err(e) => {
-                    failed += 1;
-                    ("failed".to_string(), format!("复制失败：{e}"))
-                }
-            },
+            }
         };
 
         sink.row(InvoiceRow {
@@ -305,6 +326,10 @@ mod tests {
         })
     }
 
+    fn error_extract(_: &Path) -> Result<InvoiceInfo, AppError> {
+        Err(AppError::Pdf("PDF 加密/损坏/无法打开".to_string()))
+    }
+
     #[test]
     fn rejects_empty_user_name() {
         let dir = TempDir::new().unwrap();
@@ -353,6 +378,7 @@ mod tests {
         let p = &plans[0];
         assert_eq!(p.invoice_number.as_deref(), Some("26322000000893295511"));
         assert_eq!(p.total_amount_cents, Some(9333));
+        assert_eq!(p.parse_error, None);
         assert_eq!(
             p.target,
             dir.path()
@@ -369,10 +395,27 @@ mod tests {
         assert_eq!(plans.len(), 1);
         assert_eq!(plans[0].invoice_number, None);
         assert_eq!(plans[0].total_amount_cents, None);
+        assert_eq!(plans[0].parse_error, None);
         assert_eq!(
             plans[0].target.file_name().unwrap().to_string_lossy(),
             "UNKNOWN-Felix-TN.pdf"
         );
+    }
+
+    #[test]
+    fn parse_error_captured_in_plan() {
+        let dir = TempDir::new().unwrap();
+        touch(dir.path(), "encrypted.pdf");
+        let plans = build_plan(dir.path(), "Felix", "TN", error_extract).unwrap();
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].invoice_number, None);
+        assert_eq!(plans[0].total_amount_cents, None);
+        assert!(plans[0].parse_error.is_some());
+        assert!(plans[0]
+            .parse_error
+            .as_ref()
+            .unwrap()
+            .contains("PDF 解析错误"));
     }
 
     #[derive(Default)]
@@ -441,8 +484,9 @@ mod tests {
         assert_eq!(summary.success, 2);
         let out = dir.path().join("TN");
         let base = out.join("26322000000893295511-Felix-TN.pdf");
-        let seq = out.join("26322000000893295511-Felix-TN_1.pdf");
+        let seq = out.join("26322000000893295511-Felix-TN-1.pdf");
         assert!(base.exists());
+        assert!(seq.exists());
         assert!(seq.exists());
     }
 
@@ -491,12 +535,14 @@ mod tests {
                 target: out.join("INV1-Felix-TN.pdf"),
                 invoice_number: Some("INV1".to_string()),
                 total_amount_cents: Some(9333),
+                parse_error: None,
             },
             RenamePlan {
                 source: dir.path().join("b.pdf"),
                 target: out.join("UNKNOWN-Felix-TN.pdf"),
                 invoice_number: None,
                 total_amount_cents: None,
+                parse_error: None,
             },
         ];
         let mut sink = RowSink::default();
@@ -516,5 +562,25 @@ mod tests {
         assert_eq!(sink.rows[1].amount_cents, None);
         assert_eq!(sink.rows[1].amount_display, None);
         assert_eq!(sink.rows[1].status, "failed");
+    }
+
+    #[test]
+    fn execute_parse_error_not_copied_marked_failed() {
+        let dir = TempDir::new().unwrap();
+        make_pdf(dir.path(), "encrypted.pdf", "ENCRYPTED");
+        let plans = build_plan(dir.path(), "Felix", "TN", error_extract).unwrap();
+        let mut sink = RowSink::default();
+        let s = execute_plan(&plans, &mut sink);
+
+        assert_eq!(s.total, 1);
+        assert_eq!(s.success, 0);
+        assert_eq!(s.failed, 1);
+        assert_eq!(sink.rows.len(), 1);
+        assert_eq!(sink.rows[0].status, "failed");
+        assert!(sink.rows[0].note.contains("PDF 解析错误"));
+
+        // 验证文件未被复制
+        let out = dir.path().join("TN");
+        assert!(!out.exists() || std::fs::read_dir(&out).unwrap().count() == 0);
     }
 }

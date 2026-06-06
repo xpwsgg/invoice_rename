@@ -2,9 +2,9 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "默认窗口的能力授权：放行核心命令与 dialog.open。",
-  "windows": ["*"],
+  "windows": ["main"],
   "permissions": [
     "core:default",
-    "dialog:default"
+    "dialog:allow-open"
   ]
 }

@@ -24,7 +24,7 @@
   - 都匹配不到时使用 `UNKNOWN` 占位，文件依然会被复制
 - 输出路径：`{源目录}/{TrackingNumber}/{发票号}-{用户名}-{TrackingNumber}.pdf`
 - 同名文件冲突时自动加序号 `-1`、`-2` … 直到 `-999`
-- 实时日志面板（info / warn / error），含进度计数和耗时
+- 实时进度显示：汇总条（总进度）、进度条、结果表格（逐行追加处理结果）
 - 源文件只读取，不移动、不修改、不删除（用 `copy` 而非 `rename`）
 - 用户名自动记忆（点"开始重命名"且校验通过时写入 `localStorage`），下次启动自动回填；源目录和 Tracking Number 不记忆
 
@@ -83,7 +83,7 @@ npm install
 | 前端构建产物预览 | `npm run preview` | 用 Vite 起本地 server 浏览 `dist/`。 |
 | 桌面应用打包 | `npm run tauri build` | release 编译 + 打包。macOS 产出 `.app` 与 `.dmg`（`src-tauri/target/release/bundle/`）；Windows 产出 `pdf_rename.exe`（`src-tauri/target/release/`，含嵌入的 PDFium）。 |
 | 重新生成图标 | `npm run tauri icon path/to/source.png` | 从 1024×1024 PNG 源图生成全部平台的图标到 `src-tauri/icons/`。 |
-| Rust 单测 | `cd src-tauri && cargo test` | 跑所有 Rust 单元测试（`error` / `pdf_parser` / `renamer`），共 24 条。 |
+| Rust 单测 | `cd src-tauri && cargo test` | 跑所有 Rust 单元测试（`error` / `pdf_parser` / `renamer`），共 40 条。 |
 | 单模块测试 | `cd src-tauri && cargo test renamer::tests` | 按模块过滤。 |
 | 快速类型检查 | `cd src-tauri && cargo check` | 不产出二进制，验证类型与编译。 |
 | 静态分析 | `cd src-tauri && cargo clippy -- -D warnings` | lint，零告警。 |
@@ -180,7 +180,7 @@ commands.rs      ← 只做参数校验 + 把 Channel 包成 Logger + spawn_bloc
 关键解耦点：
 
 - `build_plan` 把"如何从 PDF 抽号"作为参数注入，测试时传 mock 闭包，无需准备真实 PDF。
-- `Logger` trait + `ChannelLogger` 的薄封装：`renamer` 不依赖 Tauri，测试时用 `VecLogger` 收集日志做断言。
+- `ProgressSink` trait + `ChannelSink` 的薄封装：`renamer` 不依赖 Tauri，测试时用 `VecSink` 收集进度记录做断言。前端按 `renderRow(row)` 逐行追加表格，而非传统的 append 日志。
 - PDFium 实例用 `thread_local!` + `RefCell` 持有，避开全局 `Mutex` 的开销；执行在 `spawn_blocking` 线程池里。
 
 ### 抽号策略：双层正则 + UNKNOWN 兜底

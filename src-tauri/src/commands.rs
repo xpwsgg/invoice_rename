@@ -26,19 +26,20 @@ pub async fn rename_pdfs(
         return Err(AppError::Io(format!("源文件夹不存在：{source_dir}")));
     }
 
-    let summary = tauri::async_runtime::spawn_blocking(move || -> Result<RenameSummary, AppError> {
-        let plans = build_plan(&source, &user_name, &tracking_number, extract_invoice_info)?;
-        // 全局性失败：输出目录无法创建 → 整体报错，前端在表单错误区提示。
-        if let Some(out_dir) = plans.first().and_then(|p| p.target.parent()) {
-            std::fs::create_dir_all(out_dir).map_err(|e| {
-                AppError::Io(format!("创建输出目录失败：{} ({e})", out_dir.display()))
-            })?;
-        }
-        let mut sink = ChannelSink { channel: on_row };
-        Ok(execute_plan(&plans, &mut sink))
-    })
-    .await
-    .map_err(|e| AppError::Io(format!("任务调度失败：{e}")))??;
+    let summary =
+        tauri::async_runtime::spawn_blocking(move || -> Result<RenameSummary, AppError> {
+            let plans = build_plan(&source, &user_name, &tracking_number, extract_invoice_info)?;
+            // 全局性失败：输出目录无法创建 → 整体报错，前端在表单错误区提示。
+            if let Some(out_dir) = plans.first().and_then(|p| p.target.parent()) {
+                std::fs::create_dir_all(out_dir).map_err(|e| {
+                    AppError::Io(format!("创建输出目录失败：{} ({e})", out_dir.display()))
+                })?;
+            }
+            let mut sink = ChannelSink { channel: on_row };
+            Ok(execute_plan(&plans, &mut sink))
+        })
+        .await
+        .map_err(|e| AppError::Io(format!("任务调度失败：{e}")))??;
 
     Ok(summary)
 }

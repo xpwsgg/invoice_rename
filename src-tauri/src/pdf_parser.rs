@@ -6,18 +6,15 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 static RE_LABELED_20: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?:发票号码|Invoice\s*Number|Invoice\s*No)[：:.\s]*?(\d{20})(?:[^\d]|$)")
-        .unwrap()
+    Regex::new(r"(?:发票号码|Invoice\s*Number|Invoice\s*No)[：:.\s]*?(\d{20})(?:[^\d]|$)").unwrap()
 });
 
 static RE_LABELED_8: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?:发票号码|Invoice\s*Number|Invoice\s*No)[：:.\s]*?(\d{8})(?:[^\d]|$)")
-        .unwrap()
+    Regex::new(r"(?:发票号码|Invoice\s*Number|Invoice\s*No)[：:.\s]*?(\d{8})(?:[^\d]|$)").unwrap()
 });
 
-static RE_BARE_20: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?:^|[^\d])(\d{20})(?:[^\d]|$)").unwrap()
-});
+static RE_BARE_20: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?:^|[^\d])(\d{20})(?:[^\d]|$)").unwrap());
 
 // 价税合计（含税总额）小写金额。
 // 实测：pdfium 提取顺序下「(小写)」标签与金额并不相邻，但小写金额始终紧跟
@@ -33,14 +30,15 @@ static RE_AMOUNT_ANY: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"[¥￥]\s*([0-9,]+\.[0-9]{2})").unwrap());
 
 thread_local! {
-    static PDFIUM_LOCAL: RefCell<Option<Pdfium>> = RefCell::new(None);
+    static PDFIUM_LOCAL: RefCell<Option<Pdfium>> = const { RefCell::new(None) };
 }
 
 fn make_pdfium() -> Result<Pdfium, AppError> {
     let local_dir = locate_lib_dir();
-    let bindings = match local_dir.as_ref().and_then(|p| {
-        Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(p)).ok()
-    }) {
+    let bindings = match local_dir
+        .as_ref()
+        .and_then(|p| Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(p)).ok())
+    {
         Some(b) => b,
         None => Pdfium::bind_to_system_library()
             .map_err(|e| AppError::Pdf(format!("加载 PDFium 库失败：{e}")))?,
@@ -294,13 +292,15 @@ mod tests {
 
     #[test]
     fn extract_from_sample_pdf_if_present() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/sample.pdf");
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sample.pdf");
         if !path.exists() {
             eprintln!("跳过：未找到 {}", path.display());
             return;
         }
-        let result = extract_invoice_info(&path).expect("PDF 解析不应失败").number;
+        let result = extract_invoice_info(&path)
+            .expect("PDF 解析不应失败")
+            .number;
         assert!(result.is_some(), "应该能从样本 PDF 提取到发票号码");
         let num = result.unwrap();
         assert!(
