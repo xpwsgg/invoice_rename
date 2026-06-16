@@ -147,6 +147,67 @@ where
     Ok(plans)
 }
 
+/// 根据指定的文件名列表构造重命名计划（支持前端过滤后的文件列表）
+pub fn build_plan_for_files<F>(
+    source_dir: &Path,
+    user_name: &str,
+    tracking_number: &str,
+    file_names: &[String],
+    extract_fn: F,
+) -> Result<Vec<RenamePlan>, AppError>
+where
+    F: Fn(&Path) -> Result<InvoiceInfo, AppError>,
+{
+    validate_name("用户名", user_name)?;
+    validate_name("Tracking Number", tracking_number)?;
+
+    if !source_dir.is_dir() {
+        return Err(AppError::Io(format!(
+            "源文件夹不存在或不是目录：{}",
+            source_dir.display()
+        )));
+    }
+
+    let output_dir = source_dir.join(tracking_number);
+
+    let mut plans = Vec::new();
+    for file_name in file_names {
+        let path = source_dir.join(file_name);
+
+        if !path.is_file() {
+            continue;
+        }
+        if !is_pdf(&path) {
+            continue;
+        }
+
+        let (info, parse_error) = match extract_fn(&path) {
+            Ok(info) => (info, None),
+            Err(e) => (
+                InvoiceInfo {
+                    number: None,
+                    total_amount_cents: None,
+                },
+                Some(e.to_string()),
+            ),
+        };
+        let invoice = info.number;
+        let prefix = invoice.clone().unwrap_or_else(|| "UNKNOWN".to_string());
+        let filename = format!("{prefix}-{user_name}-{tracking_number}.pdf");
+        let target = output_dir.join(filename);
+
+        plans.push(RenamePlan {
+            source: path,
+            target,
+            invoice_number: invoice,
+            total_amount_cents: info.total_amount_cents,
+            parse_error,
+        });
+    }
+
+    Ok(plans)
+}
+
 fn is_pdf(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())

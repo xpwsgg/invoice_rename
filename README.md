@@ -17,16 +17,23 @@
 
 ## 功能
 
-- 选源文件夹 → 一键扫描顶层所有 `.pdf` / `.PDF`
-- 自动识别发票号码：
-  - 优先匹配带字段名的 `发票号码: / Invoice Number: / Invoice No`
-  - 退化到独立的 20 位数字片段
+### 核心功能
+- **即时扫描**：选择文件夹后立即显示所有 PDF 文件列表和总金额（v0.4.2+）
+- **智能识别**：自动识别发票号码和价税合计金额
+  - 发票号码：优先匹配带字段名的 `发票号码: / Invoice Number: / Invoice No`，退化到独立的 20 位数字片段
+  - 价税合计：优先匹配中文大写金额锚点，回退为文档中最大的 ¥ 金额
   - 都匹配不到时使用 `UNKNOWN` 占位，文件依然会被复制
-- 输出路径：`{源目录}/{TrackingNumber}/{发票号}-{用户名}-{TrackingNumber}.pdf`
-- 同名文件冲突时自动加序号 `-1`、`-2` … 直到 `-999`
-- 实时进度显示：汇总条（总进度）、进度条、结果表格（逐行追加处理结果）
-- 源文件只读取，不移动、不修改、不删除（用 `copy` 而非 `rename`）
-- 用户名自动记忆（点"开始重命名"且校验通过时写入 `localStorage`），下次启动自动回填；源目录和 Tracking Number 不记忆
+- **文件过滤**：每个文件都有"移除"按钮，可在重命名前排除不需要的文件（v0.4.2+）
+  - 移除后总金额和统计数据实时更新
+  - 重命名时只处理保留的文件
+- **批量重命名**：输出路径 `{源目录}/{TrackingNumber}/{发票号}-{用户名}-{TrackingNumber}.pdf`
+- **智能冲突处理**：同名文件冲突时自动加序号 `-1`、`-2` … 直到 `-999`
+- **实时反馈**：
+  - 汇总条显示价税合计总和、总张数、成功/失败/未识别金额统计
+  - 进度条实时显示处理进度
+  - 结果表格逐行追加处理结果
+- **安全操作**：源文件只读取，不移动、不修改、不删除（用 `copy` 而非 `rename`）
+- **智能记忆**：用户名自动记忆并回填；源目录和 Tracking Number 不记忆
 
 ## 文件名规则
 
@@ -143,19 +150,28 @@ npm install
 ## 工作流程概览
 
 ```
- UI 选目录 + 填两个字段（用户名从 localStorage 回填）
+ UI 选目录（立即扫描显示文件列表和总金额）
         │
-        ▼
- invoke("rename_pdfs", { sourceDir, userName, trackingNumber, onLog })
+        ▼  invoke("scan_pdfs", { sourceDir })
+ 扫描所有 PDF ─▶ pdfium 抽取文本 ─▶ 正则匹配发票号和金额
+        │
+        ▼  前端显示
+ 文件列表（每行有"移除"按钮）+ 价税合计总和 + 统计
+        │
+        ▼  用户操作
+ 移除不需要的文件 → 总金额实时更新
+        │
+        ▼  填写用户名和 TN，点击"开始重命名"
+ invoke("rename_pdfs", { sourceDir, userName, trackingNumber, fileNames, onRow })
         │
         ▼  spawn_blocking
- build_plan ─▶ 枚举顶层 PDF ─▶ pdfium 抽取文本 ─▶ 正则匹配发票号
+ build_plan_for_files ─▶ 只处理保留的文件 ─▶ 构建重命名计划
         │
         ▼
  execute_plan ─▶ 创建输出目录 ─▶ 逐个 copy ─▶ 同名加序号
         │
-        ▼  Channel<LogEntry>
- 前端实时追加日志，结束后返回 summary
+        ▼  Channel<InvoiceRow>
+ 前端实时追加结果，结束后返回 summary
 ```
 
 ## 设计思路
@@ -170,18 +186,22 @@ npm install
 ### 模块边界
 
 ```
-commands.rs      ← 只做参数校验 + 把 Channel 包成 Logger + spawn_blocking
+commands.rs      ← 参数校验 + 把 Channel 包成 ProgressSink + spawn_blocking
    │
-   ├─ pdf_parser.rs    ← PDFium 调用 + 正则匹配，纯函数 find_invoice_number_in_text 单独可测
-   ├─ renamer.rs       ← build_plan / execute_plan，与 PDF 解析解耦（通过传入 extract_fn 闭包）
-   └─ error.rs         ← AppError 统一前后端错误形态，实现 Serialize 直通 IPC
+   ├─ scan_pdfs           ← 扫描文件夹，返回文件列表和金额汇总（v0.4.2+）
+   ├─ rename_pdfs         ← 接收文件名列表，只处理指定文件（v0.4.2+）
+   ├─ pdf_parser.rs       ← PDFium 调用 + 正则匹配发票号和金额
+   ├─ renamer.rs          ← build_plan / build_plan_for_files / execute_plan
+   └─ error.rs            ← AppError 统一前后端错误形态
 ```
 
 关键解耦点：
 
-- `build_plan` 把"如何从 PDF 抽号"作为参数注入，测试时传 mock 闭包，无需准备真实 PDF。
-- `ProgressSink` trait + `ChannelSink` 的薄封装：`renamer` 不依赖 Tauri，测试时用 `VecSink` 收集进度记录做断言。前端按 `renderRow(row)` 逐行追加表格，而非传统的 append 日志。
-- PDFium 实例用 `thread_local!` + `RefCell` 持有，避开全局 `Mutex` 的开销；执行在 `spawn_blocking` 线程池里。
+- **即时扫描与重命名分离**（v0.4.2+）：`scan_pdfs` 只扫描不重命名，`rename_pdfs` 接收文件名列表按需处理
+- `build_plan` / `build_plan_for_files`：前者扫描整个文件夹，后者只处理指定文件列表
+- `build_plan_for_files` 把"如何从 PDF 抽号"作为参数注入，测试时传 mock 闭包
+- `ProgressSink` trait + `ChannelSink`：`renamer` 不依赖 Tauri，测试时用 `VecSink` 收集进度
+- PDFium 实例用 `thread_local!` + `RefCell` 持有，避开全局 `Mutex` 开销
 
 ### 抽号策略：双层正则 + UNKNOWN 兜底
 

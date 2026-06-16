@@ -27,6 +27,7 @@ if (savedUserName) {
 
 let running = false;
 let lastOutputDir = null;
+let scannedFiles = []; // 缓存扫描结果
 
 // 实时累加器：边收行边更新顶部汇总，结束后由后端 summary 校准。
 let acc = freshAcc();
@@ -41,6 +42,7 @@ $pickBtn.addEventListener("click", async () => {
   if (typeof picked === "string" && picked.length > 0) {
     $sourceDir.value = picked;
     showError("");
+    await scanFolder(picked); // 立即扫描并显示
   }
 });
 
@@ -140,6 +142,149 @@ function renderStats({ count, success, failed, missing }) {
   }
 }
 
+/// 扫描文件夹：显示文件列表和总金额
+async function scanFolder(sourceDir) {
+  setMode("run");
+  resetTable();
+  $progressTrack.hidden = true;
+  setRunning(true);
+
+  try {
+    const scanResult = await invoke("scan_pdfs", { sourceDir });
+    scannedFiles = scanResult.files || [];
+
+    // 显示扫描结果
+    if (scanResult.total === 0) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 6; // 增加到 6 列（包含操作列）
+      td.className = "table-empty";
+      td.textContent = "未找到 PDF 文件";
+      tr.append(td);
+      $resultBody.replaceChildren(tr);
+    } else {
+      // 渲染每个文件
+      for (const file of scannedFiles) {
+        renderScannedFile(file);
+      }
+    }
+
+    // 更新汇总信息
+    updateScanSummary();
+
+  } catch (e) {
+    showError(typeof e === "string" ? e : JSON.stringify(e));
+    setMode("idle");
+  } finally {
+    setRunning(false);
+  }
+}
+
+/// 渲染单个扫描的文件
+function renderScannedFile(file) {
+  const tr = document.createElement("tr");
+  tr.dataset.fileIndex = file.index;
+  if (file.parseError) tr.className = "row-warning";
+
+  tr.append(makeCell("cell-idx", String(file.index)));
+  tr.append(makeCell("cell-name", file.sourceName, file.sourceName));
+  tr.append(makeCell("cell-invoice", file.invoiceNumber || "—", file.invoiceNumber || ""));
+
+  const amountMissing = file.amountCents === null || file.amountCents === undefined;
+  tr.append(
+    makeCell(amountMissing ? "cell-amount missing" : "cell-amount", file.amountDisplay || "—")
+  );
+
+  const statusCell = document.createElement("td");
+  statusCell.className = "cell-status";
+  const badge = document.createElement("span");
+  badge.className = "status-badge pending";
+  badge.textContent = "待处理";
+  if (file.parseError) {
+    badge.className = "status-badge warn";
+    badge.textContent = "⚠";
+    badge.title = file.parseError;
+  }
+  statusCell.append(badge);
+  tr.append(statusCell);
+
+  // 添加操作列
+  const actionCell = document.createElement("td");
+  actionCell.className = "cell-action";
+  const removeBtn = document.createElement("button");
+  removeBtn.className = "btn-remove";
+  removeBtn.textContent = "移除";
+  removeBtn.title = "从列表中移除此文件";
+  removeBtn.onclick = () => removeFile(file.index);
+  actionCell.append(removeBtn);
+  tr.append(actionCell);
+
+  $resultBody.append(tr);
+}
+
+/// 从列表中移除文件
+function removeFile(fileIndex) {
+  // 从缓存中移除
+  const removedIndex = scannedFiles.findIndex(f => f.index === fileIndex);
+  if (removedIndex === -1) return;
+
+  scannedFiles.splice(removedIndex, 1);
+
+  // 从 DOM 中移除
+  const row = $resultBody.querySelector(`tr[data-file-index="${fileIndex}"]`);
+  if (row) {
+    row.remove();
+  }
+
+  // 重新编号显示（但保持原始 sourceName 不变）
+  let displayIndex = 1;
+  Array.from($resultBody.querySelectorAll('tr')).forEach((row) => {
+    const indexCell = row.querySelector('.cell-idx');
+    if (indexCell && !row.querySelector('.table-empty')) {
+      indexCell.textContent = String(displayIndex);
+      displayIndex++;
+    }
+  });
+
+  // 更新汇总
+  updateScanSummary();
+
+  // 如果没有文件了，显示空状态
+  if (scannedFiles.length === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 6;
+    td.className = "table-empty";
+    td.textContent = "未找到 PDF 文件";
+    tr.append(td);
+    $resultBody.replaceChildren(tr);
+  }
+}
+
+/// 更新扫描汇总信息
+function updateScanSummary() {
+  let totalAmountCents = 0;
+  let amountRecognized = 0;
+  let amountMissing = 0;
+
+  for (const file of scannedFiles) {
+    if (file.amountCents !== null && file.amountCents !== undefined) {
+      totalAmountCents += file.amountCents;
+      amountRecognized++;
+    } else {
+      amountMissing++;
+    }
+  }
+
+  $summaryAmount.textContent = formatAmount(totalAmountCents);
+  renderStats({
+    count: scannedFiles.length,
+    success: 0,
+    failed: 0,
+    missing: amountMissing,
+  });
+}
+
 function updateProgress(cur, total) {
   if (total > 0) {
     $progressTrack.hidden = false;
@@ -177,6 +322,11 @@ function renderRow(row) {
   if (row.note) badge.title = row.note;
   statusCell.append(badge);
   tr.append(statusCell);
+
+  // 重命名结果不显示移除按钮
+  const actionCell = document.createElement("td");
+  actionCell.className = "cell-action";
+  tr.append(actionCell);
 
   $resultBody.append(tr);
   $resultTable.scrollTop = $resultTable.scrollHeight;
@@ -233,6 +383,15 @@ async function runRename() {
   showError("");
   localStorage.setItem(USER_NAME_KEY, $userName.value.trim());
 
+  // 如果还没有扫描过，先扫描
+  if (scannedFiles.length === 0) {
+    const sourceDir = $sourceDir.value.trim();
+    await scanFolder(sourceDir);
+    if (scannedFiles.length === 0) {
+      return; // 扫描失败或无文件
+    }
+  }
+
   resetTable();
   setMode("run");
   $progressTrack.hidden = false;
@@ -246,10 +405,14 @@ async function runRename() {
   channel.onmessage = (row) => renderRow(row);
 
   try {
+    // 提取要处理的文件名列表
+    const fileNames = scannedFiles.map(f => f.sourceName);
+
     const summary = await invoke("rename_pdfs", {
       sourceDir: $sourceDir.value.trim(),
       userName: $userName.value.trim(),
       trackingNumber: $tracking.value.trim(),
+      fileNames: fileNames,
       onRow: channel,
     });
     if (summary) {

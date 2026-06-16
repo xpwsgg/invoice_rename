@@ -16,6 +16,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            commands::scan_pdfs,
             commands::rename_pdfs,
             commands::open_folder
         ])

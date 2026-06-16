@@ -635,6 +635,10 @@ button:disabled {
   width: 46px;
   text-align: center;
 }
+.col-action {
+  width: 60px;
+  text-align: center;
+}
 
 .result-table td.cell-idx {
   color: var(--muted);
@@ -675,6 +679,14 @@ button:disabled {
   color: var(--error);
 }
 
+.status-badge.warn {
+  color: var(--warn);
+}
+
+.status-badge.pending {
+  color: var(--info);
+}
+
 /* 失败行红色高亮 */
 .result-table tbody tr.row-failed td {
   background: var(--error-soft);
@@ -683,6 +695,38 @@ button:disabled {
 .result-table tbody tr.row-failed td.cell-name,
 .result-table tbody tr.row-failed td.cell-invoice {
   color: var(--error);
+}
+
+/* 警告行黄色高亮 */
+.result-table tbody tr.row-warning td {
+  background: var(--warn-soft);
+}
+
+/* 移除按钮 */
+.btn-remove {
+  padding: 3px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-remove:hover {
+  background: var(--error-soft);
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.btn-remove:active {
+  transform: scale(0.95);
+}
+
+.result-table td.cell-action {
+  text-align: center;
 }
 
 .result-table td.table-empty {
